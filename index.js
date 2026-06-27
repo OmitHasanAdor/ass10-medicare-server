@@ -101,6 +101,42 @@ async function run() {
       }
     });
 
+    // 🔍 ১. নির্দিষ্ট পেশেন্টের সমস্ত অ্যাপয়েন্টমেন্ট ডক্টরের ডিটেইলসসহ নিয়ে আসার API (GET)
+app.get('/api/appointments/patient/:patientId', async (req, res) => {
+    try {
+        const { patientId } = req.params;
+
+        // MongoDB Aggregation Pipeline ব্যবহার করে ডক্টরের তথ্য যুক্ত করা হচ্ছে
+        const appointments = await appointmentsCollection.aggregate([
+            {
+                $match: { patientId: new ObjectId(patientId) }
+            },
+            {
+                $lookup: {
+                    from: "doctors",          // আপনার ডক্টর কালেকশনের নাম (নিশ্চিত হয়ে নিন)
+                    localField: "doctorId",
+                    foreignField: "_id",
+                    as: "doctorDetails"
+                }
+            },
+            {
+                $unwind: {
+                    path: "$doctorDetails",
+                    preserveNullAndEmptyArrays: true // ডক্টর ডিলিট হয়ে গেলেও যেন অ্যাপয়েন্টমেন্ট ক্রাশ না করে
+                }
+            },
+            {
+                $sort: { "createdAt": -1 } // নতুন অ্যাপয়েন্টমেন্টগুলো উপরে দেখাবে
+            }
+        ]).toArray();
+
+        res.send(appointments);
+    } catch (error) {
+        console.error("Fetch Appointments Error:", error);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
 
     // 🎉 ২. পেমেন্ট সফল হলে Appointments কালেকশনে ডেটা ইনসার্ট করার API
  app.get('/api/payment-success', async (req, res) => {
