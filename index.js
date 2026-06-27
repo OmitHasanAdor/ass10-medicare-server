@@ -101,6 +101,20 @@ async function run() {
       }
     });
 
+    // ❌ ৩. অ্যাপয়েন্টমেন্ট ডিলিট/ক্যান্সেল করার API (DELETE)
+app.delete('/api/appointments/cancel/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // আপনার রিকোয়ারমেন্ট অনুযায়ী সরাসরি ডাটাবেজ থেকে ডিলিট করা হচ্ছে
+        const result = await appointmentsCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+    } catch (error) {
+        console.error("Delete Appointment Error:", error);
+        res.status(500).send({ message: "Failed to cancel appointment" });
+    }
+});
+
     // 🔄 ২. অ্যাপয়েন্টমেন্ট রিশেডিউল (Reschedule) করার API (PATCH)
 app.patch('/api/appointments/reschedule/:id', async (req, res) => {
     try {
