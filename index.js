@@ -101,6 +101,26 @@ async function run() {
       }
     });
 
+
+
+    // ২. নতুন রিভিউ তৈরি করার API (POST)
+app.post('/api/reviews/add', async (req, res) => {
+    try {
+        const { patientId, doctorId, rating, reviewText } = req.body;
+        const newReview = {
+            patientId: new ObjectId(patientId),
+            doctorId: new ObjectId(doctorId),
+            rating: Number(rating),
+            reviewText,
+            reviewDate: new Date()
+        };
+        const result = await db.collection("reviews").insertOne(newReview);
+        res.send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Failed to add review");
+    }
+});
     // ১. নির্দিষ্ট পেশেন্টের দেওয়া সমস্ত রিভিউ দেখার API (GET)
 app.get('/api/reviews/patient/:patientId', async (req, res) => {
     try {
