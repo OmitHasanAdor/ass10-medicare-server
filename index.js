@@ -101,6 +101,32 @@ async function run() {
       }
     });
 
+    // ১. নির্দিষ্ট পেশেন্টের দেওয়া সমস্ত রিভিউ দেখার API (GET)
+app.get('/api/reviews/patient/:patientId', async (req, res) => {
+    try {
+        const { patientId } = req.params;
+        const reviews = await db.collection("reviews").aggregate([
+            {
+                $match: { patientId: new ObjectId(patientId) }
+            },
+            {
+                $lookup: {
+                    from: "doctors", // আপনার ডক্টর কালেকশনের নাম
+                    localField: "doctorId",
+                    foreignField: "_id",
+                    as: "doctorDetails"
+                }
+            },
+            { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } },
+            { $sort: { reviewDate: -1 } }
+        ]).toArray();
+        
+        res.send(reviews);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Failed to fetch reviews");
+    }
+});
 
 // 💳 পেশেন্টের সম্পূর্ণ পেমেন্ট হিস্ট্রি ডক্টরের নামসহ নিয়ে আসার API (GET)
 app.get('/api/payments/patient/:patientId', async (req, res) => {
