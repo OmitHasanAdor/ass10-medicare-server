@@ -35,6 +35,7 @@ async function run() {
     const usersCollection = db.collection("users");
     const appointmentsCollection = db.collection("appointments");
     const authUserCollection = db.collection("user");
+    const paymentsCollection = db.collection("payments");
 
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
@@ -102,54 +103,74 @@ async function run() {
 
 
     // 🎉 ২. পেমেন্ট সফল হলে Appointments কালেকশনে ডেটা ইনসার্ট করার API
-    app.get('/api/payment-success', async (req, res) => {
-      try {
+ app.get('/api/payment-success', async (req, res) => {
+    try {
         const { session_id } = req.query;
 
         if (!session_id) {
-          return res.status(400).send("Session ID is required");
+            return res.status(400).send("Session ID is required");
         }
 
-        // স্ট্রাইপ থেকে সেশন রিট্রিভ করে মেটাডাটা বের করা
+        // Stripe থেকে পেমেন্ট সেশন রিট্রিভ করে মেটাডাটা ও পেমেন্ট ইনটেন্ট আইডি বের করা
         const session = await stripe.checkout.sessions.retrieve(session_id);
 
         if (session.payment_status === 'paid') {
-          const data = session.metadata;
+            const data = session.metadata;
 
-          // ডুপ্লিকেট বুকিং এড়াতে চেক করা
-          const isExist = await appointmentsCollection.findOne({ stripeSessionId: session_id });
+            // ১. ডুপ্লিকেট বুকিং এড়াতে চেক করা (ইতিমধ্যে এই সেশনের জন্য অ্যাপয়েন্টমেন্ট আছে কিনা)
+            let appointment = await appointmentsCollection.findOne({ stripeSessionId: session_id });
+            let appointmentId;
 
-          if (!isExist) {
-            // 📝 আপনার দেওয়া ফিল্ডের রিকোয়ারমেন্ট অনুযায়ী নতুন Appointment অবজেক্ট তৈরি
-            const newAppointment = {
-              patientId: new ObjectId(data.patientId), // 'user' কালেকশনের আইডিটি এখানে বসবে
-              doctorId: new ObjectId(data.doctorId),
-              appointmentDate: data.appointmentDate,
-              appointmentTime: data.appointmentTime,
-              appointmentStatus: "pending", // ডিফল্ট স্ট্যাটাস
-              symptoms: data.symptoms,
-              paymentStatus: "paid", // স্ট্রাইপ কনফার্ম করেছে
-              stripeSessionId: session_id,
-              amountPaid: session.amount_total / 100,
-              createdAt: new Date()
-            };
+            if (!appointment) {
+                // 📝 Appointments কালেকশনের অবজেক্ট তৈরি
+                const newAppointment = {
+                    patientId: new ObjectId(data.patientId),
+                    doctorId: new ObjectId(data.doctorId),
+                    appointmentDate: data.appointmentDate,
+                    appointmentTime: data.appointmentTime,
+                    appointmentStatus: "pending", 
+                    symptoms: data.symptoms,
+                    paymentStatus: "paid", 
+                    stripeSessionId: session_id,
+                    createdAt: new Date()
+                };
 
-            // Appointments কালেকশনে ডেটা সেভ করা
-            await appointmentsCollection.insertOne(newAppointment);
-          }
+                // ডাটাবেজে অ্যাপয়েন্টমেন্ট ইনসার্ট করা
+                const appointmentResult = await appointmentsCollection.insertOne(newAppointment);
+                appointmentId = appointmentResult.insertedId;
+            } else {
+                appointmentId = appointment._id;
+            }
 
-          // পেমেন্ট ও অ্যাপয়েন্টমেন্ট সফল হলে ফ্রন্টএন্ড ড্যাশবোর্ডে রিডাইরেক্ট
-          // আপনার এক্সপ্রেস কোডের ভেতরের রিডাইরেক্ট লাইনটি এভাবে আপডেট করুন:
-          res.redirect(`${process.env.CLIENT_URL}/dashboard/patient/appointments?status=success`);
+            // ২. 💳 Payments কালেকশনের জন্য ডেটা তৈরি ও ইনসার্ট করা
+            // চেক করে নেওয়া যে এই সেশনের পেমেন্ট অলরেডি ডাটাবেজে সেভ হয়েছে কিনা
+            const isPaymentExist = await paymentsCollection.findOne({ transactionId: session.payment_intent });
+
+            if (!isPaymentExist) {
+                const newPayment = {
+                    appointmentId: new ObjectId(appointmentId), // উপরে তৈরি হওয়া বা খুঁজে পাওয়া অ্যাপয়েন্টমেন্টের আইডি
+                    patientId: new ObjectId(data.patientId),
+                    doctorId: new ObjectId(data.doctorId),
+                    amount: session.amount_total / 100, // সেন্ট থেকে ডলারে কনভার্ট করা হলো
+                    transactionId: session.payment_intent, // Stripe এর অফিশিয়াল ইউনিক ট্রানজেকশন আইডি
+                    paymentDate: new Date() // পেমেন্ট সফল হওয়ার কারেন্ট ডেট ও টাইম
+                };
+
+                // Payments কালেকশনে ডেটা সেভ করা
+                await paymentsCollection.insertOne(newPayment);
+            }
+
+            // 🚀 দুটি কালেকশনেই ডেটা সেভ হয়ে যাওয়ার পর পেশেন্টকে তার ড্যাশবোর্ডের সাকসেস পেজে রিডাইরেক্ট করা
+            res.redirect(`http://localhost:3000/dashboard/patient/appointments?status=success`);
         } else {
-          res.status(400).send("Payment validation failed.");
+            res.status(400).send("Payment validation failed.");
         }
 
-      } catch (error) {
+    } catch (error) {
         console.error("Database Insertion Error:", error);
-        res.status(500).send({ message: "Failed to create appointment", error: error.message });
-      }
-    });
+        res.status(500).send({ message: "Failed to process payment data", error: error.message });
+    }
+});
 
     // 🎯 ১. ফ্রন্টএন্ড থেকে ইউজার ডাটা রিসিভ করার জন্য POST API
     app.post('/api/users', async (req, res) => {
