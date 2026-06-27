@@ -102,7 +102,21 @@ async function run() {
     });
 
 
-
+// ৩. আগের রিভিউ এডিট/আপডেট করার API (PATCH)
+app.patch('/api/reviews/update/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rating, reviewText } = req.body;
+        const result = await db.collection("reviews").updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { rating: Number(rating), reviewText, reviewDate: new Date() } }
+        );
+        res.send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Failed to update review");
+    }
+});
     // ২. নতুন রিভিউ তৈরি করার API (POST)
 app.post('/api/reviews/add', async (req, res) => {
     try {
