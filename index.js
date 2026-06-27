@@ -101,6 +101,33 @@ async function run() {
       }
     });
 
+    // 🔄 ২. অ্যাপয়েন্টমেন্ট রিশেডিউল (Reschedule) করার API (PATCH)
+app.patch('/api/appointments/reschedule/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { appointmentDate, appointmentTime } = req.body;
+
+        if (!appointmentDate || !appointmentTime) {
+            return res.status(400).send({ message: "Date and Time are required" });
+        }
+
+        const filter = { _id: new ObjectId(id) };
+        const updatedDoc = {
+            $set: {
+                appointmentDate,
+                appointmentTime,
+                appointmentStatus: "pending" // রিশেডিউল করলে স্ট্যাটাস আবার পেন্ডিং এ যাবে
+            }
+        };
+
+        const result = await appointmentsCollection.updateOne(filter, updatedDoc);
+        res.send(result);
+    } catch (error) {
+        console.error("Reschedule Error:", error);
+        res.status(500).send({ message: "Failed to reschedule" });
+    }
+});
+
     // 🔍 ১. নির্দিষ্ট পেশেন্টের সমস্ত অ্যাপয়েন্টমেন্ট ডক্টরের ডিটেইলসসহ নিয়ে আসার API (GET)
 app.get('/api/appointments/patient/:patientId', async (req, res) => {
     try {
