@@ -102,6 +102,17 @@ async function run() {
     });
 
 
+    // ৪. রিভিউ ডিলিট করার API (DELETE)
+app.delete('/api/reviews/delete/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await db.collection("reviews").deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Failed to delete review");
+    }
+});
 // ৩. আগের রিভিউ এডিট/আপডেট করার API (PATCH)
 app.patch('/api/reviews/update/:id', async (req, res) => {
     try {
