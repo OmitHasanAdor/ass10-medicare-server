@@ -101,6 +101,43 @@ async function run() {
       }
     });
 
+
+// 💳 পেশেন্টের সম্পূর্ণ পেমেন্ট হিস্ট্রি ডক্টরের নামসহ নিয়ে আসার API (GET)
+app.get('/api/payments/patient/:patientId', async (req, res) => {
+    try {
+        const { patientId } = req.params;
+
+        // payments কালেকশন থেকে ডাটা ফেচ করে doctors কালেকশনের সাথে যুক্ত করা হচ্ছে
+        const paymentHistory = await db.collection("payments").aggregate([
+            {
+                $match: { patientId: new ObjectId(patientId) }
+            },
+            {
+                $lookup: {
+                    from: "doctors",          // আপনার ডাটাবেজে ডক্টর কালেকশনের আসল নাম
+                    localField: "doctorId",
+                    foreignField: "_id",
+                    as: "doctorDetails"
+                }
+            },
+            {
+                $unwind: {
+                    path: "$doctorDetails",
+                    preserveNullAndEmptyArrays: true // ডক্টর কোনো কারণে ডিলিট হলেও ডাটা ক্রাশ করবে না
+                }
+            },
+            {
+                $sort: { "paymentDate": -1 } // লেটেস্ট পেমেন্ট বা ট্রানজেকশনগুলো সবার উপরে থাকবে
+            }
+        ]).toArray();
+
+        res.send(paymentHistory);
+    } catch (error) {
+        console.error("Fetch Payment History Error:", error);
+        res.status(500).send({ message: "Internal server error failed to fetch payment history" });
+    }
+});
+
     // ❌ ৩. অ্যাপয়েন্টমেন্ট ডিলিট/ক্যান্সেল করার API (DELETE)
 app.delete('/api/appointments/cancel/:id', async (req, res) => {
     try {
