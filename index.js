@@ -36,11 +36,12 @@ async function run() {
     const authUserCollection = db.collection("user");
     const appointmentsCollection = db.collection("appointments");
     const paymentsCollection = db.collection("payments");
+    const doctorsCollection = db.collection("doctors");
 
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
 
-   
+
 
     // ৪. রিভিউ ডিলিট করার API (DELETE)
     app.delete('/api/reviews/delete/:id', async (req, res) => {
@@ -54,61 +55,174 @@ async function run() {
       }
     });
 
-    // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড (e.g., index.js)
-app.patch('/api/doctor/update-credentials', async (req, res) => {
+ // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড (index.js)
+
+app.put('/api/doctor/save-credentials', async (req, res) => {
     try {
-        const { email, qualifications, experience, consultationFee, availableSlots } = req.body;
+        const { 
+            email, doctorName, specialization, qualifications, experience, 
+            consultationFee, hospitalName, availableDays, availableSlots, 
+            profileImage, verificationStatus, rating 
+        } = req.body;
 
         if (!email) {
             return res.status(400).send({ success: false, message: "Doctor email is required" });
         }
 
-        // শুধু নির্দিষ্ট ফিল্ডগুলো অবজেক্টে নেওয়া হচ্ছে
-        const updatedFields = {
+        // ফ্রন্টএন্ড থেকে আসা আপনার কাঙ্ক্ষিত কমপ্লিট ডাটা স্কিমা অবজেক্ট
+        const doctorCompleteData = {
+            email,
+            doctorName,
+            specialization,
             qualifications,
-            experience: parseInt(experience) || 0,
-            consultationFee: parseFloat(consultationFee) || 0,
-            availableSlots: Array.isArray(availableSlots) ? availableSlots : [availableSlots]
+            experience,
+            consultationFee,
+            hospitalName,
+            availableDays,
+            availableSlots,
+            profileImage,
+            verificationStatus,
+            rating
         };
 
-        const result = await usersCollection.updateOne(
-            { email: email },
-            { $set: updatedFields }
+        // upsert: true থাকায় ডাটা না থাকলে তৈরি হবে, আর থাকলে পুরো অবজেক্টটি ওভাররাইট/আপডেট হবে।
+        const result = await doctorsCollection.updateOne(
+            { email: email }, 
+            { $set: doctorCompleteData },
+            { upsert: true } 
         );
 
-        if (result.matchedCount === 0) {
-            return res.status(404).send({ success: false, message: "Doctor profile not found" });
-        }
-
-        res.send({ success: true, message: "Credentials updated successfully!" });
+        res.send({ 
+            success: true, 
+            message: result.upsertedCount > 0 ? "Doctor profile created successfully!" : "Doctor profile updated successfully!" 
+        });
     } catch (error) {
         res.status(500).send({ success: false, message: error.message });
     }
 });
 
+// 💻 আপনার এক্সপ্রেস ব্যাকএন্ড (index.js)
+app.patch('/api/doctor/update-schedule', async (req, res) => {
+    try {
+        const { email, availableDays, availableSlots } = req.body;
+
+        if (!email) {
+            return res.status(400).send({ success: false, message: "Doctor email is required" });
+        }
+
+        // শুধুমাত্র শিডিউলের দুটি ফিল্ড আপডেট করা হচ্ছে
+        const result = await doctorsCollection.updateOne(
+            { email: email },
+            { 
+                $set: { 
+                    availableDays: Array.isArray(availableDays) ? availableDays : [],
+                    availableSlots: Array.isArray(availableSlots) ? availableSlots : []
+                } 
+            }
+        );
+
+        if (result.matchedCount === 0) {
+            return res.status(404).send({ success: false, message: "Doctor profile not found to update schedule" });
+        }
+
+        res.send({ success: true, message: "Schedule slots updated successfully!" });
+    } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+    }
+});
 
     // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড ফাইল (index.js)
-app.get('/user-role', async (req, res) => {
-    try {
+    app.get('/user-role', async (req, res) => {
+      try {
         const email = req.query.email;
         if (!email) return res.status(400).send({ message: "Email is required" });
 
         // কাস্টম users কালেকশন থেকে রোল এবং স্ট্যাটাস খুঁজে বের করা
         const userProfile = await usersCollection.findOne(
-            { email: email },
-            { projection: { role: 1, status: 1 } } // শুধু রোল এবং স্ট্যাটাস ফিল্ড নিবে পারফরম্যান্সের জন্য
+          { email: email },
+          { projection: { role: 1, status: 1 } } // শুধু রোল এবং স্ট্যাটাস ফিল্ড নিবে পারফরম্যান্সের জন্য
         );
 
         if (!userProfile) {
-            return res.status(404).send({ message: "User profile not found" });
+          return res.status(404).send({ message: "User profile not found" });
         }
 
         res.send(userProfile);
-    } catch (error) {
+      } catch (error) {
         res.status(500).send({ message: error.message });
+      }
+    });
+
+
+    // ১. ডক্টরের অ্যাপয়েন্টমেন্টগুলো পেশেন্ট ডাটা-সহ গেট করার API
+app.get('/api/doctor/appointments', async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) {
+      return res.status(400).send({ message: "Doctor email is required" });
     }
+
+    // প্রথমে ডক্টরের ইমেল দিয়ে তার প্রোফাইল থেকে _id বের করা
+    const doctor = await doctorsCollection.findOne({ email: email });
+    if (!doctor) {
+      return res.status(404).send({ message: "Doctor profile not found" });
+    }
+
+    // Aggregation pipeline: appointments-এর সাথে users কালেকশন যুক্ত করা
+    const appointments = await appointmentsCollection.aggregate([
+      {
+        $match: { doctorId: doctor._id } // শুধুমাত্র এই ডক্টরের অ্যাপয়েন্টমেন্ট ফিল্টার
+      },
+      {
+        $lookup: {
+          from: "users",                  // আপনার পেশেন্ট বা ইউজারের কালেকশন নাম (নিশ্চিত হয়ে নিন)
+          localField: "patientId",
+          foreignField: "_id",
+          as: "patientInfo"
+        }
+      },
+      {
+        $unwind: {
+          path: "$patientInfo",
+          preserveNullAndEmptyArrays: true // পেশেন্ট ডাটা কোনো কারণে না থাকলেও অ্যাপয়েন্টমেন্ট দেখাবে
+        }
+      },
+      {
+        $sort: { "createdAt": -1 } // নতুন অ্যাপয়েন্টমেন্টগুলো আগে দেখাবে
+      }
+    ]).toArray();
+
+    res.send(appointments);
+  } catch (error) {
+    res.status(500).send({ message: error.message });
+  }
 });
 
+// ২. অ্যাপয়েন্টমেন্টের স্ট্যাটাস চেঞ্জ করার PATCH API
+app.patch('/api/appointments/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body; // 'confirmed', 'cancelled', অথবা 'completed'
+    
+    if (!['confirmed', 'cancelled', 'completed'].includes(status)) {
+      return res.status(400).send({ success: false, message: "Invalid status update" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const result = await appointmentsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { appointmentStatus: status } }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).send({ success: false, message: "Appointment not found or status unchanged" });
+    }
+
+    res.send({ success: true, message: `Appointment status updated to ${status}` });
+  } catch (error) {
+    res.status(500).send({ success: false, message: error.message });
+  }
+});
 
     // ৩. আগের রিভিউ এডিট/আপডেট করার API (PATCH)
     app.patch('/api/reviews/update/:id', async (req, res) => {
@@ -284,20 +398,20 @@ app.get('/user-role', async (req, res) => {
     });
 
 
-// 💻 আপনার এক্সপ্রেস ব্যাকএন্ড ফাইল (index.js)
-// const { ObjectId } = require('mongodb');
+    // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড ফাইল (index.js)
+    // const { ObjectId } = require('mongodb');
 
-app.get('/patient-dashboard-data', async (req, res) => {
-    try {
+    app.get('/patient-dashboard-data', async (req, res) => {
+      try {
         const email = req.query.email;
         if (!email) return res.status(400).send({ message: "Email is required" });
 
         // 🌟 লক্ষ্য করুন: এখানে usersCollection এর বদলে authUserCollection (user কালেকশন) ব্যবহার করা হয়েছে
         const patientUser = await authUserCollection.findOne({ email: email });
-        
+
         if (!patientUser) {
-            // console.log(`❌ No user found in authUserCollection with email: ${email}`);
-            return res.send([]); 
+          // console.log(`❌ No user found in authUserCollection with email: ${email}`);
+          return res.send([]);
         }
 
         // Better Auth এর তৈরি করা ইউজার অবজেক্ট থেকে আইডি নেওয়া
@@ -310,163 +424,163 @@ app.get('/patient-dashboard-data', async (req, res) => {
 
         // ২. সঠিক আইডি দিয়ে অ্যাপয়েন্টমেন্ট এগ্রিগেট করা
         const appointments = await appointmentsCollection.aggregate([
-            { 
-                $match: { 
-                    patientId: targetPatientId // এখন এটি অবজেক্ট আইডি "6a400a5440312c29bf22bd55" এর সাথে হুবহু ম্যাচ করবে!
-                } 
-            },
-            { $sort: { appointmentDate: -1 } }, 
-            {
-                $lookup: {
-                    from: "doctors", 
-                    localField: "doctorId",
-                    foreignField: "_id",
-                    as: "doctorDetails"
-                }
-            },
-            { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } }
+          {
+            $match: {
+              patientId: targetPatientId // এখন এটি অবজেক্ট আইডি "6a400a5440312c29bf22bd55" এর সাথে হুবহু ম্যাচ করবে!
+            }
+          },
+          { $sort: { appointmentDate: -1 } },
+          {
+            $lookup: {
+              from: "doctors",
+              localField: "doctorId",
+              foreignField: "_id",
+              as: "doctorDetails"
+            }
+          },
+          { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } }
         ]).toArray();
 
         // console.log(`✅ Successfully found ${appointments.length} appointments for ${email}.`);
         res.send(appointments);
 
-    } catch (error) {
+      } catch (error) {
         console.error("Backend Error:", error);
         res.status(500).send({ message: error.message });
-    }
-});
-
-
-// 💳 ১. Stripe Hosted Checkout Session তৈরি করার API (Form POST)
-app.post('/api/create-checkout-session', async (req, res) => {
-  try {
-    const { doctorId, doctorName, consultationFee, appointmentDate, appointmentTime, symptoms } = req.body;
-    const patientEmail = req.body.patientEmail;
-
-    if (!patientEmail) {
-      return res.status(400).send({ message: "Patient email is required to book an appointment" });
-    }
-
-    const patientUser = await authUserCollection.findOne({ email: patientEmail });
-
-    if (!patientUser) {
-      return res.status(404).send({ message: "Patient account not found in database" });
-    }
-
-    const patientId = patientUser._id.toString();
-
-    // 🚀 এখানে consultationFee নিশ্চিত করে ইন্টিজারে কনভার্ট করা হচ্ছে
-    const feeAmount = parseInt(consultationFee) || 0;
-    const amountInCents = feeAmount * 100;
-
-    const session = await stripe.checkout.sessions.create({
-      customer_email: patientEmail,
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: doctorName,
-              description: `Appointment on ${appointmentDate} at ${appointmentTime}`,
-            },
-            unit_amount: amountInCents,
-          },
-          quantity: 1,
-        },
-      ],
-      // 🎯 মেটাডাটায় amountPaid স্পষ্ট করে পাস করে দেওয়া হলো
-      metadata: {
-        patientId,
-        doctorId,
-        appointmentDate,
-        appointmentTime,
-        symptoms: symptoms || "No symptoms specified",
-        amountPaid: feeAmount // 🚀 এই নতুন ফিল্ডটি যোগ করা হলো
-      },
-      mode: 'payment',
-      // 🚀 success_url ফিক্স করা হয়েছে (http://localhost:5000 অথবা env থেকে SERVER_URL ব্যবহার করুন)
-      success_url: `${process.env.SERVER_URL || 'http://localhost:5000'}/api/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:3000'}/find-doctors/${doctorId}`,
+      }
     });
 
-    res.redirect(303, session.url);
 
-  } catch (error) {
-    console.error("Stripe Session Error:", error);
-    res.status(500).send({ error: error.message });
-  }
-});
+    // 💳 ১. Stripe Hosted Checkout Session তৈরি করার API (Form POST)
+    app.post('/api/create-checkout-session', async (req, res) => {
+      try {
+        const { doctorId, doctorName, consultationFee, appointmentDate, appointmentTime, symptoms } = req.body;
+        const patientEmail = req.body.patientEmail;
 
-// 🔄 ২. পেমেন্ট সাকসেস হ্যান্ডলার API
-app.get('/api/payment-success', async (req, res) => {
-  try {
-    const { session_id } = req.query;
+        if (!patientEmail) {
+          return res.status(400).send({ message: "Patient email is required to book an appointment" });
+        }
 
-    if (!session_id) {
-      return res.status(400).send("Session ID is required");
-    }
+        const patientUser = await authUserCollection.findOne({ email: patientEmail });
 
-    // Stripe থেকে পেমেন্ট সেশন রিট্রিভ করে মেটাডাটা ও পেমেন্ট ইনটেন্ট আইডি বের করা
-    const session = await stripe.checkout.sessions.retrieve(session_id);
+        if (!patientUser) {
+          return res.status(404).send({ message: "Patient account not found in database" });
+        }
 
-    if (session.payment_status === 'paid') {
-      const data = session.metadata;
+        const patientId = patientUser._id.toString();
 
-      // ১. ডুপ্লিকেট বুকিং এড়াতে চেক করা
-      let appointment = await appointmentsCollection.findOne({ stripeSessionId: session_id });
-      let appointmentId;
+        // 🚀 এখানে consultationFee নিশ্চিত করে ইন্টিজারে কনভার্ট করা হচ্ছে
+        const feeAmount = parseInt(consultationFee) || 0;
+        const amountInCents = feeAmount * 100;
 
-      if (!appointment) {
-        // 📝 Appointments কালেকশনের অবজেক্ট তৈরি
-        const newAppointment = {
-          patientId: new ObjectId(data.patientId),
-          doctorId: new ObjectId(data.doctorId),
-          appointmentDate: data.appointmentDate,
-          appointmentTime: data.appointmentTime,
-          appointmentStatus: "pending",
-          symptoms: data.symptoms,
-          paymentStatus: "paid",
-          stripeSessionId: session_id,
-          amountPaid: Number(data.amountPaid) || (session.amount_total / 100), // 🚀 এখানে ফিল্ডটি যুক্ত করা হলো যাতে $0 না আসে
-          createdAt: new Date()
-        };
+        const session = await stripe.checkout.sessions.create({
+          customer_email: patientEmail,
+          payment_method_types: ['card'],
+          line_items: [
+            {
+              price_data: {
+                currency: 'usd',
+                product_data: {
+                  name: doctorName,
+                  description: `Appointment on ${appointmentDate} at ${appointmentTime}`,
+                },
+                unit_amount: amountInCents,
+              },
+              quantity: 1,
+            },
+          ],
+          // 🎯 মেটাডাটায় amountPaid স্পষ্ট করে পাস করে দেওয়া হলো
+          metadata: {
+            patientId,
+            doctorId,
+            appointmentDate,
+            appointmentTime,
+            symptoms: symptoms || "No symptoms specified",
+            amountPaid: feeAmount // 🚀 এই নতুন ফিল্ডটি যোগ করা হলো
+          },
+          mode: 'payment',
+          // 🚀 success_url ফিক্স করা হয়েছে (http://localhost:5000 অথবা env থেকে SERVER_URL ব্যবহার করুন)
+          success_url: `${process.env.SERVER_URL || 'http://localhost:5000'}/api/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.CLIENT_URL || 'http://localhost:3000'}/find-doctors/${doctorId}`,
+        });
 
-        // ডাটাবেজে অ্যাপয়েন্টমেন্ট ইনসার্ট করা
-        const appointmentResult = await appointmentsCollection.insertOne(newAppointment);
-        appointmentId = appointmentResult.insertedId;
-      } else {
-        appointmentId = appointment._id;
+        res.redirect(303, session.url);
+
+      } catch (error) {
+        console.error("Stripe Session Error:", error);
+        res.status(500).send({ error: error.message });
       }
+    });
 
-      // ২. 💳 Payments কালেকশনের জন্য ডেটা তৈরি ও ইনসার্ট করা
-      const isPaymentExist = await paymentsCollection.findOne({ transactionId: session.payment_intent });
+    // 🔄 ২. পেমেন্ট সাকসেস হ্যান্ডলার API
+    app.get('/api/payment-success', async (req, res) => {
+      try {
+        const { session_id } = req.query;
 
-      if (!isPaymentExist) {
-        const newPayment = {
-          appointmentId: new ObjectId(appointmentId),
-          patientId: new ObjectId(data.patientId),
-          doctorId: new ObjectId(data.doctorId),
-          amount: session.amount_total / 100, // সেন্ট থেকে ডলারে কনভার্ট করা হলো
-          transactionId: session.payment_intent,
-          paymentDate: new Date()
-        };
+        if (!session_id) {
+          return res.status(400).send("Session ID is required");
+        }
 
-        // Payments কালেকশনে ডেটা সেভ করা
-        await paymentsCollection.insertOne(newPayment);
+        // Stripe থেকে পেমেন্ট সেশন রিট্রিভ করে মেটাডাটা ও পেমেন্ট ইনটেন্ট আইডি বের করা
+        const session = await stripe.checkout.sessions.retrieve(session_id);
+
+        if (session.payment_status === 'paid') {
+          const data = session.metadata;
+
+          // ১. ডুপ্লিকেট বুকিং এড়াতে চেক করা
+          let appointment = await appointmentsCollection.findOne({ stripeSessionId: session_id });
+          let appointmentId;
+
+          if (!appointment) {
+            // 📝 Appointments কালেকশনের অবজেক্ট তৈরি
+            const newAppointment = {
+              patientId: new ObjectId(data.patientId),
+              doctorId: new ObjectId(data.doctorId),
+              appointmentDate: data.appointmentDate,
+              appointmentTime: data.appointmentTime,
+              appointmentStatus: "pending",
+              symptoms: data.symptoms,
+              paymentStatus: "paid",
+              stripeSessionId: session_id,
+              amountPaid: Number(data.amountPaid) || (session.amount_total / 100), // 🚀 এখানে ফিল্ডটি যুক্ত করা হলো যাতে $0 না আসে
+              createdAt: new Date()
+            };
+
+            // ডাটাবেজে অ্যাপয়েন্টমেন্ট ইনসার্ট করা
+            const appointmentResult = await appointmentsCollection.insertOne(newAppointment);
+            appointmentId = appointmentResult.insertedId;
+          } else {
+            appointmentId = appointment._id;
+          }
+
+          // ২. 💳 Payments কালেকশনের জন্য ডেটা তৈরি ও ইনসার্ট করা
+          const isPaymentExist = await paymentsCollection.findOne({ transactionId: session.payment_intent });
+
+          if (!isPaymentExist) {
+            const newPayment = {
+              appointmentId: new ObjectId(appointmentId),
+              patientId: new ObjectId(data.patientId),
+              doctorId: new ObjectId(data.doctorId),
+              amount: session.amount_total / 100, // সেন্ট থেকে ডলারে কনভার্ট করা হলো
+              transactionId: session.payment_intent,
+              paymentDate: new Date()
+            };
+
+            // Payments কালেকশনে ডেটা সেভ করা
+            await paymentsCollection.insertOne(newPayment);
+          }
+
+          // 🚀 দুটি কালেকশনেই ডেটা সেভ হয়ে যাওয়ার পর পেশেন্টকে তার ড্যাশবোর্ডের সাকসেস পেজে রিডাইরেক্ট করা
+          res.redirect(`${process.env.CLIENT_URL}/dashboard/patient/appointments?status=success`);
+        } else {
+          res.status(400).send("Payment validation failed.");
+        }
+
+      } catch (error) {
+        console.error("Database Insertion Error:", error);
+        res.status(500).send({ message: "Failed to process payment data", error: error.message });
       }
-
-      // 🚀 দুটি কালেকশনেই ডেটা সেভ হয়ে যাওয়ার পর পেশেন্টকে তার ড্যাশবোর্ডের সাকসেস পেজে রিডাইরেক্ট করা
-      res.redirect(`${process.env.CLIENT_URL}/dashboard/patient/appointments?status=success`);
-    } else {
-      res.status(400).send("Payment validation failed.");
-    }
-
-  } catch (error) {
-    console.error("Database Insertion Error:", error);
-    res.status(500).send({ message: "Failed to process payment data", error: error.message });
-  }
-});
+    });
 
     // 🎯 ১. ফ্রন্টএন্ড থেকে ইউজার ডাটা রিসিভ করার জন্য POST API
     app.post('/api/users', async (req, res) => {
@@ -541,8 +655,8 @@ app.get('/api/payment-success', async (req, res) => {
       console.log('Server side doctor query:', req.query);
 
       const query = {};
-      const db = client.db("medicaredb");
-      const doctorsCollection = db.collection("doctors");
+      // const db = client.db("medicaredb");
+
 
       // ১. সার্চ লজিক
       if (req.query.search) {
