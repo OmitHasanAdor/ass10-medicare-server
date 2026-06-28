@@ -33,328 +33,407 @@ async function run() {
     // ডাটাবেজ এবং কালেকশন রেফারেন্স
     const db = client.db("medicaredb");
     const usersCollection = db.collection("users");
-    const appointmentsCollection = db.collection("appointments");
     const authUserCollection = db.collection("user");
+    const appointmentsCollection = db.collection("appointments");
     const paymentsCollection = db.collection("payments");
 
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
 
-    // 💳 ১. Stripe Hosted Checkout Session তৈরি করার API (Form POST)
-    app.post('/api/create-checkout-session', async (req, res) => {
+   
+
+    // ৪. রিভিউ ডিলিট করার API (DELETE)
+    app.delete('/api/reviews/delete/:id', async (req, res) => {
       try {
-        const { doctorId, doctorName, consultationFee, appointmentDate, appointmentTime, symptoms } = req.body;
-
-        // ⚠️ ফ্রন্টএন্ড থেকে কারেন্ট লগড-ইন ইউজারের ইমেইলটি ফর্মে হিডেন হিসেবে পাঠাতে হবে (যেমন: user?.email)
-        const patientEmail = req.body.patientEmail;
-
-        if (!patientEmail) {
-          return res.status(400).send({ message: "Patient email is required to book an appointment" });
-        }
-
-        // 🔍 Better Auth এর 'user' কালেকশন থেকে পেশেন্টের আসল মঙ্গোডিবি আইডি (_id) খুঁজে বের করা
-        const patientUser = await authUserCollection.findOne({ email: patientEmail });
-
-        if (!patientUser) {
-          return res.status(404).send({ message: "Patient account not found in database" });
-        }
-
-        const patientId = patientUser._id.toString(); // আইডিটি মেটাডাটার জন্য স্ট্রিং করে নিলাম
-        const amountInCents = parseInt(consultationFee) * 100;
-
-        // 🚀 Stripe Checkout Session জেনারেট করা
-        const session = await stripe.checkout.sessions.create({
-          customer_email: patientEmail,
-          payment_method_types: ['card'],
-          line_items: [
-            {
-              price_data: {
-                currency: 'usd',
-                product_data: {
-                  name: doctorName,
-                  description: `Appointment on ${appointmentDate} at ${appointmentTime}`,
-                },
-                unit_amount: amountInCents,
-              },
-              quantity: 1,
-            },
-          ],
-          // 🎯 মেটাডাটায় আপনার Appointments কালেকশনের জন্য প্রয়োজনীয় সব ফিল্ড পুশ করা হচ্ছে
-          metadata: {
-            patientId, // 'user' কালেকশন থেকে পাওয়া আসল আইডি
-            doctorId,
-            appointmentDate,
-            appointmentTime,
-            symptoms: symptoms || "No symptoms specified"
-          },
-          mode: 'payment',
-          success_url: `http://localhost:5000/api/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `http://localhost:3000/find-doctors/${doctorId}`,
-        });
-
-        // স্ট্রাইপ পেমেন্ট পেজে রিডাইরেক্ট
-        res.redirect(303, session.url);
-
+        const { id } = req.params;
+        const result = await db.collection("reviews").deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
       } catch (error) {
-        console.error("Stripe Session Error:", error);
-        res.status(500).send({ error: error.message });
+        console.error(error);
+        res.status(500).send("Failed to delete review");
       }
     });
 
 
-    // ৪. রিভিউ ডিলিট করার API (DELETE)
-app.delete('/api/reviews/delete/:id', async (req, res) => {
+    // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড ফাইল (index.js)
+app.get('/user-role', async (req, res) => {
     try {
-        const { id } = req.params;
-        const result = await db.collection("reviews").deleteOne({ _id: new ObjectId(id) });
-        res.send(result);
-    } catch (error) {
-        console.error(error);
-        res.status(500).send("Failed to delete review");
-    }
-});
-// ৩. আগের রিভিউ এডিট/আপডেট করার API (PATCH)
-app.patch('/api/reviews/update/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { rating, reviewText } = req.body;
-        const result = await db.collection("reviews").updateOne(
-            { _id: new ObjectId(id) },
-            { $set: { rating: Number(rating), reviewText, reviewDate: new Date() } }
+        const email = req.query.email;
+        if (!email) return res.status(400).send({ message: "Email is required" });
+
+        // কাস্টম users কালেকশন থেকে রোল এবং স্ট্যাটাস খুঁজে বের করা
+        const userProfile = await usersCollection.findOne(
+            { email: email },
+            { projection: { role: 1, status: 1 } } // শুধু রোল এবং স্ট্যাটাস ফিল্ড নিবে পারফরম্যান্সের জন্য
         );
-        res.send(result);
+
+        if (!userProfile) {
+            return res.status(404).send({ message: "User profile not found" });
+        }
+
+        res.send(userProfile);
     } catch (error) {
-        console.error(error);
-        res.status(500).send("Failed to update review");
-    }
-});
-    // ২. নতুন রিভিউ তৈরি করার API (POST)
-app.post('/api/reviews/add', async (req, res) => {
-    try {
-        const { patientId, doctorId, rating, reviewText } = req.body;
-        const newReview = {
-            patientId: new ObjectId(patientId),
-            doctorId: new ObjectId(doctorId),
-            rating: Number(rating),
-            reviewText,
-            reviewDate: new Date()
-        };
-        const result = await db.collection("reviews").insertOne(newReview);
-        res.send(result);
-    } catch (error) {
-        console.error(error);
-        res.status(500).send("Failed to add review");
-    }
-});
-    // ১. নির্দিষ্ট পেশেন্টের দেওয়া সমস্ত রিভিউ দেখার API (GET)
-app.get('/api/reviews/patient/:patientId', async (req, res) => {
-    try {
-        const { patientId } = req.params;
-        const reviews = await db.collection("reviews").aggregate([
-            {
-                $match: { patientId: new ObjectId(patientId) }
-            },
-            {
-                $lookup: {
-                    from: "doctors", // আপনার ডক্টর কালেকশনের নাম
-                    localField: "doctorId",
-                    foreignField: "_id",
-                    as: "doctorDetails"
-                }
-            },
-            { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } },
-            { $sort: { reviewDate: -1 } }
-        ]).toArray();
-        
-        res.send(reviews);
-    } catch (error) {
-        console.error(error);
-        res.status(500).send("Failed to fetch reviews");
+        res.status(500).send({ message: error.message });
     }
 });
 
-// 💳 পেশেন্টের সম্পূর্ণ পেমেন্ট হিস্ট্রি ডক্টরের নামসহ নিয়ে আসার API (GET)
-app.get('/api/payments/patient/:patientId', async (req, res) => {
-    try {
+
+    // ৩. আগের রিভিউ এডিট/আপডেট করার API (PATCH)
+    app.patch('/api/reviews/update/:id', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { rating, reviewText } = req.body;
+        const result = await db.collection("reviews").updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { rating: Number(rating), reviewText, reviewDate: new Date() } }
+        );
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send("Failed to update review");
+      }
+    });
+    // ২. নতুন রিভিউ তৈরি করার API (POST)
+    app.post('/api/reviews/add', async (req, res) => {
+      try {
+        const { patientId, doctorId, rating, reviewText } = req.body;
+        const newReview = {
+          patientId: new ObjectId(patientId),
+          doctorId: new ObjectId(doctorId),
+          rating: Number(rating),
+          reviewText,
+          reviewDate: new Date()
+        };
+        const result = await db.collection("reviews").insertOne(newReview);
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send("Failed to add review");
+      }
+    });
+    // ১. নির্দিষ্ট পেশেন্টের দেওয়া সমস্ত রিভিউ দেখার API (GET)
+    app.get('/api/reviews/patient/:patientId', async (req, res) => {
+      try {
+        const { patientId } = req.params;
+        const reviews = await db.collection("reviews").aggregate([
+          {
+            $match: { patientId: new ObjectId(patientId) }
+          },
+          {
+            $lookup: {
+              from: "doctors", // আপনার ডক্টর কালেকশনের নাম
+              localField: "doctorId",
+              foreignField: "_id",
+              as: "doctorDetails"
+            }
+          },
+          { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } },
+          { $sort: { reviewDate: -1 } }
+        ]).toArray();
+
+        res.send(reviews);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send("Failed to fetch reviews");
+      }
+    });
+
+    // 💳 পেশেন্টের সম্পূর্ণ পেমেন্ট হিস্ট্রি ডক্টরের নামসহ নিয়ে আসার API (GET)
+    app.get('/api/payments/patient/:patientId', async (req, res) => {
+      try {
         const { patientId } = req.params;
 
         // payments কালেকশন থেকে ডাটা ফেচ করে doctors কালেকশনের সাথে যুক্ত করা হচ্ছে
         const paymentHistory = await db.collection("payments").aggregate([
-            {
-                $match: { patientId: new ObjectId(patientId) }
-            },
-            {
-                $lookup: {
-                    from: "doctors",          // আপনার ডাটাবেজে ডক্টর কালেকশনের আসল নাম
-                    localField: "doctorId",
-                    foreignField: "_id",
-                    as: "doctorDetails"
-                }
-            },
-            {
-                $unwind: {
-                    path: "$doctorDetails",
-                    preserveNullAndEmptyArrays: true // ডক্টর কোনো কারণে ডিলিট হলেও ডাটা ক্রাশ করবে না
-                }
-            },
-            {
-                $sort: { "paymentDate": -1 } // লেটেস্ট পেমেন্ট বা ট্রানজেকশনগুলো সবার উপরে থাকবে
+          {
+            $match: { patientId: new ObjectId(patientId) }
+          },
+          {
+            $lookup: {
+              from: "doctors",          // আপনার ডাটাবেজে ডক্টর কালেকশনের আসল নাম
+              localField: "doctorId",
+              foreignField: "_id",
+              as: "doctorDetails"
             }
+          },
+          {
+            $unwind: {
+              path: "$doctorDetails",
+              preserveNullAndEmptyArrays: true // ডক্টর কোনো কারণে ডিলিট হলেও ডাটা ক্রাশ করবে না
+            }
+          },
+          {
+            $sort: { "paymentDate": -1 } // লেটেস্ট পেমেন্ট বা ট্রানজেকশনগুলো সবার উপরে থাকবে
+          }
         ]).toArray();
 
         res.send(paymentHistory);
-    } catch (error) {
+      } catch (error) {
         console.error("Fetch Payment History Error:", error);
         res.status(500).send({ message: "Internal server error failed to fetch payment history" });
-    }
-});
+      }
+    });
 
     // ❌ ৩. অ্যাপয়েন্টমেন্ট ডিলিট/ক্যান্সেল করার API (DELETE)
-app.delete('/api/appointments/cancel/:id', async (req, res) => {
-    try {
+    app.delete('/api/appointments/cancel/:id', async (req, res) => {
+      try {
         const { id } = req.params;
-        
+
         // আপনার রিকোয়ারমেন্ট অনুযায়ী সরাসরি ডাটাবেজ থেকে ডিলিট করা হচ্ছে
         const result = await appointmentsCollection.deleteOne({ _id: new ObjectId(id) });
         res.send(result);
-    } catch (error) {
+      } catch (error) {
         console.error("Delete Appointment Error:", error);
         res.status(500).send({ message: "Failed to cancel appointment" });
-    }
-});
+      }
+    });
 
     // 🔄 ২. অ্যাপয়েন্টমেন্ট রিশেডিউল (Reschedule) করার API (PATCH)
-app.patch('/api/appointments/reschedule/:id', async (req, res) => {
-    try {
+    app.patch('/api/appointments/reschedule/:id', async (req, res) => {
+      try {
         const { id } = req.params;
         const { appointmentDate, appointmentTime } = req.body;
 
         if (!appointmentDate || !appointmentTime) {
-            return res.status(400).send({ message: "Date and Time are required" });
+          return res.status(400).send({ message: "Date and Time are required" });
         }
 
         const filter = { _id: new ObjectId(id) };
         const updatedDoc = {
-            $set: {
-                appointmentDate,
-                appointmentTime,
-                appointmentStatus: "pending" // রিশেডিউল করলে স্ট্যাটাস আবার পেন্ডিং এ যাবে
-            }
+          $set: {
+            appointmentDate,
+            appointmentTime,
+            appointmentStatus: "pending" // রিশেডিউল করলে স্ট্যাটাস আবার পেন্ডিং এ যাবে
+          }
         };
 
         const result = await appointmentsCollection.updateOne(filter, updatedDoc);
         res.send(result);
-    } catch (error) {
+      } catch (error) {
         console.error("Reschedule Error:", error);
         res.status(500).send({ message: "Failed to reschedule" });
-    }
-});
+      }
+    });
 
     // 🔍 ১. নির্দিষ্ট পেশেন্টের সমস্ত অ্যাপয়েন্টমেন্ট ডক্টরের ডিটেইলসসহ নিয়ে আসার API (GET)
-app.get('/api/appointments/patient/:patientId', async (req, res) => {
-    try {
+    app.get('/api/appointments/patient/:patientId', async (req, res) => {
+      try {
         const { patientId } = req.params;
 
         // MongoDB Aggregation Pipeline ব্যবহার করে ডক্টরের তথ্য যুক্ত করা হচ্ছে
         const appointments = await appointmentsCollection.aggregate([
-            {
-                $match: { patientId: new ObjectId(patientId) }
+          {
+            $match: { patientId: new ObjectId(patientId) }
+          },
+          {
+            $lookup: {
+              from: "doctors",          // আপনার ডক্টর কালেকশনের নাম (নিশ্চিত হয়ে নিন)
+              localField: "doctorId",
+              foreignField: "_id",
+              as: "doctorDetails"
+            }
+          },
+          {
+            $unwind: {
+              path: "$doctorDetails",
+              preserveNullAndEmptyArrays: true // ডক্টর ডিলিট হয়ে গেলেও যেন অ্যাপয়েন্টমেন্ট ক্রাশ না করে
+            }
+          },
+          {
+            $sort: { "createdAt": -1 } // নতুন অ্যাপয়েন্টমেন্টগুলো উপরে দেখাবে
+          }
+        ]).toArray();
+
+        res.send(appointments);
+      } catch (error) {
+        console.error("Fetch Appointments Error:", error);
+        res.status(500).send({ message: "Internal server error" });
+      }
+    });
+
+
+// 💻 আপনার এক্সপ্রেস ব্যাকএন্ড ফাইল (index.js)
+// const { ObjectId } = require('mongodb');
+
+app.get('/patient-dashboard-data', async (req, res) => {
+    try {
+        const email = req.query.email;
+        if (!email) return res.status(400).send({ message: "Email is required" });
+
+        // 🌟 লক্ষ্য করুন: এখানে usersCollection এর বদলে authUserCollection (user কালেকশন) ব্যবহার করা হয়েছে
+        const patientUser = await authUserCollection.findOne({ email: email });
+        
+        if (!patientUser) {
+            // console.log(`❌ No user found in authUserCollection with email: ${email}`);
+            return res.send([]); 
+        }
+
+        // Better Auth এর তৈরি করা ইউজার অবজেক্ট থেকে আইডি নেওয়া
+        const rawId = patientUser._id || patientUser.id;
+
+        // আইডিটিকে মঙ্গোডিবি ObjectId-তে কনভার্ট করা
+        const targetPatientId = typeof rawId === 'string' ? new ObjectId(rawId) : rawId;
+
+        // console.log(`🔍 Fetching dynamic data for: ${email} -> Target Patient ID:`, targetPatientId);
+
+        // ২. সঠিক আইডি দিয়ে অ্যাপয়েন্টমেন্ট এগ্রিগেট করা
+        const appointments = await appointmentsCollection.aggregate([
+            { 
+                $match: { 
+                    patientId: targetPatientId // এখন এটি অবজেক্ট আইডি "6a400a5440312c29bf22bd55" এর সাথে হুবহু ম্যাচ করবে!
+                } 
             },
+            { $sort: { appointmentDate: -1 } }, 
             {
                 $lookup: {
-                    from: "doctors",          // আপনার ডক্টর কালেকশনের নাম (নিশ্চিত হয়ে নিন)
+                    from: "doctors", 
                     localField: "doctorId",
                     foreignField: "_id",
                     as: "doctorDetails"
                 }
             },
-            {
-                $unwind: {
-                    path: "$doctorDetails",
-                    preserveNullAndEmptyArrays: true // ডক্টর ডিলিট হয়ে গেলেও যেন অ্যাপয়েন্টমেন্ট ক্রাশ না করে
-                }
-            },
-            {
-                $sort: { "createdAt": -1 } // নতুন অ্যাপয়েন্টমেন্টগুলো উপরে দেখাবে
-            }
+            { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } }
         ]).toArray();
 
+        // console.log(`✅ Successfully found ${appointments.length} appointments for ${email}.`);
         res.send(appointments);
+
     } catch (error) {
-        console.error("Fetch Appointments Error:", error);
-        res.status(500).send({ message: "Internal server error" });
+        console.error("Backend Error:", error);
+        res.status(500).send({ message: error.message });
     }
 });
 
 
-    // 🎉 ২. পেমেন্ট সফল হলে Appointments কালেকশনে ডেটা ইনসার্ট করার API
- app.get('/api/payment-success', async (req, res) => {
-    try {
-        const { session_id } = req.query;
+// 💳 ১. Stripe Hosted Checkout Session তৈরি করার API (Form POST)
+app.post('/api/create-checkout-session', async (req, res) => {
+  try {
+    const { doctorId, doctorName, consultationFee, appointmentDate, appointmentTime, symptoms } = req.body;
+    const patientEmail = req.body.patientEmail;
 
-        if (!session_id) {
-            return res.status(400).send("Session ID is required");
-        }
-
-        // Stripe থেকে পেমেন্ট সেশন রিট্রিভ করে মেটাডাটা ও পেমেন্ট ইনটেন্ট আইডি বের করা
-        const session = await stripe.checkout.sessions.retrieve(session_id);
-
-        if (session.payment_status === 'paid') {
-            const data = session.metadata;
-
-            // ১. ডুপ্লিকেট বুকিং এড়াতে চেক করা (ইতিমধ্যে এই সেশনের জন্য অ্যাপয়েন্টমেন্ট আছে কিনা)
-            let appointment = await appointmentsCollection.findOne({ stripeSessionId: session_id });
-            let appointmentId;
-
-            if (!appointment) {
-                // 📝 Appointments কালেকশনের অবজেক্ট তৈরি
-                const newAppointment = {
-                    patientId: new ObjectId(data.patientId),
-                    doctorId: new ObjectId(data.doctorId),
-                    appointmentDate: data.appointmentDate,
-                    appointmentTime: data.appointmentTime,
-                    appointmentStatus: "pending", 
-                    symptoms: data.symptoms,
-                    paymentStatus: "paid", 
-                    stripeSessionId: session_id,
-                    createdAt: new Date()
-                };
-
-                // ডাটাবেজে অ্যাপয়েন্টমেন্ট ইনসার্ট করা
-                const appointmentResult = await appointmentsCollection.insertOne(newAppointment);
-                appointmentId = appointmentResult.insertedId;
-            } else {
-                appointmentId = appointment._id;
-            }
-
-            // ২. 💳 Payments কালেকশনের জন্য ডেটা তৈরি ও ইনসার্ট করা
-            // চেক করে নেওয়া যে এই সেশনের পেমেন্ট অলরেডি ডাটাবেজে সেভ হয়েছে কিনা
-            const isPaymentExist = await paymentsCollection.findOne({ transactionId: session.payment_intent });
-
-            if (!isPaymentExist) {
-                const newPayment = {
-                    appointmentId: new ObjectId(appointmentId), // উপরে তৈরি হওয়া বা খুঁজে পাওয়া অ্যাপয়েন্টমেন্টের আইডি
-                    patientId: new ObjectId(data.patientId),
-                    doctorId: new ObjectId(data.doctorId),
-                    amount: session.amount_total / 100, // সেন্ট থেকে ডলারে কনভার্ট করা হলো
-                    transactionId: session.payment_intent, // Stripe এর অফিশিয়াল ইউনিক ট্রানজেকশন আইডি
-                    paymentDate: new Date() // পেমেন্ট সফল হওয়ার কারেন্ট ডেট ও টাইম
-                };
-
-                // Payments কালেকশনে ডেটা সেভ করা
-                await paymentsCollection.insertOne(newPayment);
-            }
-
-            // 🚀 দুটি কালেকশনেই ডেটা সেভ হয়ে যাওয়ার পর পেশেন্টকে তার ড্যাশবোর্ডের সাকসেস পেজে রিডাইরেক্ট করা
-            res.redirect(`http://localhost:3000/dashboard/patient/appointments?status=success`);
-        } else {
-            res.status(400).send("Payment validation failed.");
-        }
-
-    } catch (error) {
-        console.error("Database Insertion Error:", error);
-        res.status(500).send({ message: "Failed to process payment data", error: error.message });
+    if (!patientEmail) {
+      return res.status(400).send({ message: "Patient email is required to book an appointment" });
     }
+
+    const patientUser = await authUserCollection.findOne({ email: patientEmail });
+
+    if (!patientUser) {
+      return res.status(404).send({ message: "Patient account not found in database" });
+    }
+
+    const patientId = patientUser._id.toString();
+
+    // 🚀 এখানে consultationFee নিশ্চিত করে ইন্টিজারে কনভার্ট করা হচ্ছে
+    const feeAmount = parseInt(consultationFee) || 0;
+    const amountInCents = feeAmount * 100;
+
+    const session = await stripe.checkout.sessions.create({
+      customer_email: patientEmail,
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: doctorName,
+              description: `Appointment on ${appointmentDate} at ${appointmentTime}`,
+            },
+            unit_amount: amountInCents,
+          },
+          quantity: 1,
+        },
+      ],
+      // 🎯 মেটাডাটায় amountPaid স্পষ্ট করে পাস করে দেওয়া হলো
+      metadata: {
+        patientId,
+        doctorId,
+        appointmentDate,
+        appointmentTime,
+        symptoms: symptoms || "No symptoms specified",
+        amountPaid: feeAmount // 🚀 এই নতুন ফিল্ডটি যোগ করা হলো
+      },
+      mode: 'payment',
+      // 🚀 success_url ফিক্স করা হয়েছে (http://localhost:5000 অথবা env থেকে SERVER_URL ব্যবহার করুন)
+      success_url: `${process.env.SERVER_URL || 'http://localhost:5000'}/api/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:3000'}/find-doctors/${doctorId}`,
+    });
+
+    res.redirect(303, session.url);
+
+  } catch (error) {
+    console.error("Stripe Session Error:", error);
+    res.status(500).send({ error: error.message });
+  }
+});
+
+// 🔄 ২. পেমেন্ট সাকসেস হ্যান্ডলার API
+app.get('/api/payment-success', async (req, res) => {
+  try {
+    const { session_id } = req.query;
+
+    if (!session_id) {
+      return res.status(400).send("Session ID is required");
+    }
+
+    // Stripe থেকে পেমেন্ট সেশন রিট্রিভ করে মেটাডাটা ও পেমেন্ট ইনটেন্ট আইডি বের করা
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (session.payment_status === 'paid') {
+      const data = session.metadata;
+
+      // ১. ডুপ্লিকেট বুকিং এড়াতে চেক করা
+      let appointment = await appointmentsCollection.findOne({ stripeSessionId: session_id });
+      let appointmentId;
+
+      if (!appointment) {
+        // 📝 Appointments কালেকশনের অবজেক্ট তৈরি
+        const newAppointment = {
+          patientId: new ObjectId(data.patientId),
+          doctorId: new ObjectId(data.doctorId),
+          appointmentDate: data.appointmentDate,
+          appointmentTime: data.appointmentTime,
+          appointmentStatus: "pending",
+          symptoms: data.symptoms,
+          paymentStatus: "paid",
+          stripeSessionId: session_id,
+          amountPaid: Number(data.amountPaid) || (session.amount_total / 100), // 🚀 এখানে ফিল্ডটি যুক্ত করা হলো যাতে $0 না আসে
+          createdAt: new Date()
+        };
+
+        // ডাটাবেজে অ্যাপয়েন্টমেন্ট ইনসার্ট করা
+        const appointmentResult = await appointmentsCollection.insertOne(newAppointment);
+        appointmentId = appointmentResult.insertedId;
+      } else {
+        appointmentId = appointment._id;
+      }
+
+      // ২. 💳 Payments কালেকশনের জন্য ডেটা তৈরি ও ইনসার্ট করা
+      const isPaymentExist = await paymentsCollection.findOne({ transactionId: session.payment_intent });
+
+      if (!isPaymentExist) {
+        const newPayment = {
+          appointmentId: new ObjectId(appointmentId),
+          patientId: new ObjectId(data.patientId),
+          doctorId: new ObjectId(data.doctorId),
+          amount: session.amount_total / 100, // সেন্ট থেকে ডলারে কনভার্ট করা হলো
+          transactionId: session.payment_intent,
+          paymentDate: new Date()
+        };
+
+        // Payments কালেকশনে ডেটা সেভ করা
+        await paymentsCollection.insertOne(newPayment);
+      }
+
+      // 🚀 দুটি কালেকশনেই ডেটা সেভ হয়ে যাওয়ার পর পেশেন্টকে তার ড্যাশবোর্ডের সাকসেস পেজে রিডাইরেক্ট করা
+      res.redirect(`${process.env.CLIENT_URL}/dashboard/patient/appointments?status=success`);
+    } else {
+      res.status(400).send("Payment validation failed.");
+    }
+
+  } catch (error) {
+    console.error("Database Insertion Error:", error);
+    res.status(500).send({ message: "Failed to process payment data", error: error.message });
+  }
 });
 
     // 🎯 ১. ফ্রন্টএন্ড থেকে ইউজার ডাটা রিসিভ করার জন্য POST API
