@@ -54,6 +54,38 @@ async function run() {
       }
     });
 
+    // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড (e.g., index.js)
+app.patch('/api/doctor/update-credentials', async (req, res) => {
+    try {
+        const { email, qualifications, experience, consultationFee, availableSlots } = req.body;
+
+        if (!email) {
+            return res.status(400).send({ success: false, message: "Doctor email is required" });
+        }
+
+        // শুধু নির্দিষ্ট ফিল্ডগুলো অবজেক্টে নেওয়া হচ্ছে
+        const updatedFields = {
+            qualifications,
+            experience: parseInt(experience) || 0,
+            consultationFee: parseFloat(consultationFee) || 0,
+            availableSlots: Array.isArray(availableSlots) ? availableSlots : [availableSlots]
+        };
+
+        const result = await usersCollection.updateOne(
+            { email: email },
+            { $set: updatedFields }
+        );
+
+        if (result.matchedCount === 0) {
+            return res.status(404).send({ success: false, message: "Doctor profile not found" });
+        }
+
+        res.send({ success: true, message: "Credentials updated successfully!" });
+    } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+    }
+});
+
 
     // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড ফাইল (index.js)
 app.get('/user-role', async (req, res) => {
