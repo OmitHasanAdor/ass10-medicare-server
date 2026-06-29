@@ -6,7 +6,15 @@ const cors = require('cors');
 const app = express();
 
 // Adds headers: Access-Control-Allow-Origin: *
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "https://ass10-medicare-client-side.vercel.app",
+    ],
+    credentials: true,
+  })
+);
 app.use(express.json())
 // এক্সপ্রেসের অন্যান্য মিডলওয়্যারের সাথে এটি যুক্ত করুন
 app.use(express.urlencoded({ extended: true }));
@@ -1020,7 +1028,6 @@ app.get('/api/prescriptions', async (req, res) => {
       { hospitalName: { $regex: req.query.search.trim(), $options: 'i' } }
     ];
   }
-
   // ৩. স্পেশালাইজেশন ফিল্টার
   if (req.query.specialization) {
     const spec = req.query.specialization.toLowerCase().trim();
