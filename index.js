@@ -174,7 +174,7 @@ async function run() {
 
 
 // 📂 backend/index.js
-const { ObjectId } = require('mongodb'); 
+
 
 app.get('/api/doctor-stats/:doctorIdOrEmail', async (req, res) => {
   try {
@@ -339,75 +339,9 @@ app.get('/api/doctor-stats/:doctorIdOrEmail', async (req, res) => {
     });
 
 
-    // ১. ডক্টরের অ্যাপয়েন্টমেন্টগুলো পেশেন্ট ডাটা-সহ গেট করার API
-    // app.get('/api/doctor/appointments', async (req, res) => {
-    //   try {
-    //     const { email } = req.query;
-    //     if (!email) {
-    //       return res.status(400).send({ message: "Doctor email is required" });
-    //     }
+   
 
-    //     // প্রথমে ডক্টরের ইমেল দিয়ে তার প্রোফাইল থেকে _id বের করা
-    //     const doctor = await doctorsCollection.findOne({ email: email });
-    //     if (!doctor) {
-    //       return res.status(404).send({ message: "Doctor profile not found" });
-    //     }
 
-    //     // Aggregation pipeline: appointments-এর সাথে users কালেকশন যুক্ত করা
-    //     const appointments = await appointmentsCollection.aggregate([
-    //       {
-    //         $match: { doctorId: doctor._id } // শুধুমাত্র এই ডক্টরের অ্যাপয়েন্টমেন্ট ফিল্টার
-    //       },
-    //       {
-    //         $lookup: {
-    //           from: "users",                  // আপনার পেশেন্ট বা ইউজারের কালেকশন নাম (নিশ্চিত হয়ে নিন)
-    //           localField: "patientId",
-    //           foreignField: "_id",
-    //           as: "patientInfo"
-    //         }
-    //       },
-    //       {
-    //         $unwind: {
-    //           path: "$patientInfo",
-    //           preserveNullAndEmptyArrays: true // পেশেন্ট ডাটা কোনো কারণে না থাকলেও অ্যাপয়েন্টমেন্ট দেখাবে
-    //         }
-    //       },
-    //       {
-    //         $sort: { "createdAt": -1 } // নতুন অ্যাপয়েন্টমেন্টগুলো আগে দেখাবে
-    //       }
-    //     ]).toArray();
-
-    //     res.send(appointments);
-    //   } catch (error) {
-    //     res.status(500).send({ message: error.message });
-    //   }
-    // });
-
-    // // ২. অ্যাপয়েন্টমেন্টের স্ট্যাটাস চেঞ্জ করার PATCH API
-    // app.patch('/api/appointments/:id/status', async (req, res) => {
-    //   try {
-    //     const { id } = req.params;
-    //     const { status } = req.body; // 'confirmed', 'cancelled', অথবা 'completed'
-
-    //     if (!['confirmed', 'cancelled', 'completed'].includes(status)) {
-    //       return res.status(400).send({ success: false, message: "Invalid status update" });
-    //     }
-
-    //     const { ObjectId } = require('mongodb');
-    //     const result = await appointmentsCollection.updateOne(
-    //       { _id: new ObjectId(id) },
-    //       { $set: { appointmentStatus: status } }
-    //     );
-
-    //     if (result.modifiedCount === 0) {
-    //       return res.status(404).send({ success: false, message: "Appointment not found or status unchanged" });
-    //     }
-
-    //     res.send({ success: true, message: `Appointment status updated to ${status}` });
-    //   } catch (error) {
-    //     res.status(500).send({ success: false, message: error.message });
-    //   }
-    // });
 
 
 app.get('/api/admin/appointments', async (req, res) => {
@@ -490,9 +424,6 @@ app.get('/api/admin/appointments', async (req, res) => {
     }
 });
 
-    // ১. ডাক্তার অনুযায়ী অ্যাপয়েন্টমেন্ট এবং ফিল্টারিং গেট API
-    // 📂 ব্যাকএন্ড ফাইল (Express Server)
-
   // ==========================================
 // 1. GET: ডক্টরের অ্যাপয়েন্টমেন্ট এবং কিউ ফিল্টার
 // ==========================================
@@ -511,7 +442,7 @@ app.get('/api/doctor/appointments', async (req, res) => {
       { $match: matchQuery },
       {
         $lookup: {
-          from: "patients", // 🎯 ফিক্স: কালেকশনের নাম 'users' বদলে 'patients' করা হলো
+          from: "users", // 🎯 ফিক্স: কালেকশনের নাম 'users' বদলে 'patients' করা হলো
           localField: "patientId",
           foreignField: "_id",
           as: "patientInfo"
@@ -628,7 +559,7 @@ app.get('/api/prescriptions', async (req, res) => {
           return res.status(400).send({ success: false, message: "Invalid status update" });
         }
 
-        const { ObjectId } = require('mongodb');
+       
 
         // আইডি ফরম্যাট ভ্যালিডেশন
         if (!ObjectId.isValid(id)) {
@@ -824,8 +755,7 @@ app.get('/api/prescriptions', async (req, res) => {
     });
 
 
-    // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড ফাইল (index.js)
-    // const { ObjectId } = require('mongodb');
+
 
     app.get('/patient-dashboard-data', async (req, res) => {
       try {
