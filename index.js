@@ -934,7 +934,22 @@ async function run() {
     });
 
 
- 
+ // ডক্টরদের ভেরিফিকেশন স্ট্যাটাস আপডেট করার PATCH এপিআই
+app.patch('/api/doctors/:id/verify', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { verificationStatus } = req.body;
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = {
+      $set: { verificationStatus: verificationStatus },
+    };
+    const result = await doctorsCollection.updateOne(filter, updateDoc);
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: error.message });
+  }
+});
+
 // ১. সব ইউজারদের ডাটা পাওয়ার রুট
 app.get('/api/users', async (req, res) => {
   try {
