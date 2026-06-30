@@ -1180,67 +1180,8 @@ app.get('/api/admin/analytics', async (req, res) => {
         res.status(500).send({ message: error.message });
       }
     });
-   app.get('/api/doctors', async (req, res) => {
-  try {
-    console.log('Server side doctor query:', req.query);
-    
-    // ১. বেস কোয়েরি (শুধুমাত্র ভেরিফাইড ডক্টরদের দেখাবে)
-    // ডাটাবেজে ডাটা টেস্ট করার সময় এটি "Verified" রাখতে হবে (বড় হাতের V)
-    const query = { verificationStatus: "Verified" };
 
-    // ২. সার্চ লজিক (নাম এবং হসপিটাল)
-    if (req.query.search && req.query.search.trim() !== '') {
-      query.$or = [
-        { doctorName: { $regex: req.query.search.trim(), $options: 'i' } },
-        { hospitalName: { $regex: req.query.search.trim(), $options: 'i' } }
-      ];
-    }
 
-    // ৩. স্পেশালাইজেশন ফিল্টার (Case-insensitive check)
-    if (req.query.specialization) {
-      const spec = req.query.specialization.toLowerCase().trim();
-      if (spec !== 'all' && spec !== 'all specialties' && spec !== '') {
-        query.specialization = { $regex: `^${req.query.specialization.trim()}$`, $options: 'i' };
-      }
-    }
-
-    // ৪. সোর্টিং লজিক (🎯 DoctorFilters-এর আইডির সাথে ১০০% ম্যাচ করা হয়েছে)
-    let sortObj = {};
-    if (req.query.sort === 'fee-low-high') {
-      sortObj.consultationFee = 1;      // কম থেকে বেশি
-    } else if (req.query.sort === 'fee-high-low') {
-      sortObj.consultationFee = -1;     // বেশি থেকে কম
-    } else if (req.query.sort === 'experience') {
-      sortObj.experience = -1;          // অভিজ্ঞতার ভিত্তিতে (বেশি থেকে কম)
-    } else if (req.query.sort === 'rating') {
-      sortObj.rating = -1;              // রেটিং এর ভিত্তিতে
-    } else {
-      sortObj._id = -1;                 // ডিফল্ট: নতুন ডক্টর আগে
-    }
-
-    // ৫. পেজিনেশন লজিক (DoctorListingContainer এর itemsPerPage = 12 এর সাথে সিঙ্ক করা)
-    const page = parseInt(req.query.page, 10) || 1;
-    const perPage = parseInt(req.query.perPage, 10) || 12;
-    const skipItems = (page - 1) * perPage;
-
-    // ৬. ডাটা ফেচিং এবং কাউন্টিং
-    const currentCollection = typeof doctorsCollection !== 'undefined' ? doctorsCollection : db.collection("doctors");
-    
-    const total = await currentCollection.countDocuments(query);
-    const doctors = await currentCollection.find(query)
-      .sort(sortObj)
-      .skip(skipItems)
-      .limit(perPage)
-      .toArray();
-
-    // ৭. ফ্রন্টএন্ড কন্টেইনারের এক্সপেক্টেড অবজেক্ট ফরম্যাটে রেসপন্স পাঠানো
-    res.status(200).json({ total, doctors });
-
-  } catch (error) {
-    console.error("Error in /api/doctors:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-});
 
     // 🎯 ১. ফ্রন্টএন্ড থেকে ইউজার ডাটা রিসিভ করার জন্য POST API
     app.post('/api/users', async (req, res) => {
@@ -1344,68 +1285,65 @@ app.get('/api/admin/analytics', async (req, res) => {
     });
 
 
-  app.get('/api/doctors', async (req, res) => {
-  console.log('Server side doctor query:', req.query);
-
-  // ১. বেস কোয়েরি: শুধুমাত্র ভেরিফাইড ডক্টরদের ডাটা ফিল্টার করা হবে
-  const query = { verificationStatus: "Verified" };
-
-  // ২. সার্চ লজিক
-  if (req.query.search && req.query.search.trim() !== '') {
-    query.$or = [
-      { doctorName: { $regex: req.query.search.trim(), $options: 'i' } },
-      { hospitalName: { $regex: req.query.search.trim(), $options: 'i' } }
-    ];
-  }
-
-  // ৩. স্পেশালাইজেশন ফিল্টার (FIXED: Case-insensitive check)
-  if (req.query.specialization) {
-    const spec = req.query.specialization.toLowerCase().trim();
-    // এখানে 'all specialties' বা 'all' যাই আসুক না কেন, ছোট হাতের করে চেক করায় আর মিস হবে না
-    if (spec !== 'all' && spec !== 'all specialties' && spec !== '') {
-      query.specialization = { $regex: `^${req.query.specialization.trim()}$`, $options: 'i' };
-    }
-  }
-
-  // ৪. সোর্টিং লজিক
-  let sortObj = {};
-  if (req.query.sort === 'fee-low-high') {
-    sortObj.consultationFee = 1;
-  } else if (req.query.sort === 'fee-high-low') {
-    sortObj.consultationFee = -1;
-  } else if (req.query.sort === 'experience') {
-    sortObj.experience = -1;
-  } else if (req.query.sort === 'rating') {
-    sortObj.rating = -1;
-  } else {
-    sortObj._id = -1;
-  }
-
-  // ৫. পেজিনেশন লজিক
-  const page = parseInt(req.query.page) || 1;
-  const perPage = parseInt(req.query.perPage) || 12;
-  const skipItems = (page - 1) * perPage;
-
+app.get('/api/doctors', async (req, res) => {
   try {
-    // গ্লোবাল db বা আপনার ডিক্লেয়ার করা কালেকশন চেক করে নেওয়া
-    const currentCollection = typeof doctorsCollection !== 'undefined' 
-      ? doctorsCollection 
-      : db.collection("doctors");
+    console.log('Server side doctor query:', req.query);
+    
+    // ১. বেস কোয়েরি (শুধুমাত্র ভেরিফাইড ডক্টরদের দেখাবে)
+    // ডাটাবেজে ডাটা টেস্ট করার সময় এটি "Verified" রাখতে হবে (বড় হাতের V)
+    const query = { verificationStatus: "Verified" };
 
+    // ২. সার্চ লজিক (নাম এবং হসপিটাল)
+    if (req.query.search && req.query.search.trim() !== '') {
+      query.$or = [
+        { doctorName: { $regex: req.query.search.trim(), $options: 'i' } },
+        { hospitalName: { $regex: req.query.search.trim(), $options: 'i' } }
+      ];
+    }
+
+    // ৩. স্পেশালাইজেশন ফিল্টার (Case-insensitive check)
+    if (req.query.specialization) {
+      const spec = req.query.specialization.toLowerCase().trim();
+      if (spec !== 'all' && spec !== 'all specialties' && spec !== '') {
+        query.specialization = { $regex: `^${req.query.specialization.trim()}$`, $options: 'i' };
+      }
+    }
+
+    // ৪. সোর্টিং লজিক (🎯 DoctorFilters-এর আইডির সাথে ১০০% ম্যাচ করা হয়েছে)
+    let sortObj = {};
+    if (req.query.sort === 'fee-low-high') {
+      sortObj.consultationFee = 1;      // কম থেকে বেশি
+    } else if (req.query.sort === 'fee-high-low') {
+      sortObj.consultationFee = -1;     // বেশি থেকে কম
+    } else if (req.query.sort === 'experience') {
+      sortObj.experience = -1;          // অভিজ্ঞতার ভিত্তিতে (বেশি থেকে কম)
+    } else if (req.query.sort === 'rating') {
+      sortObj.rating = -1;              // রেটিং এর ভিত্তিতে
+    } else {
+      sortObj._id = -1;                 // ডিফল্ট: নতুন ডক্টর আগে
+    }
+
+    // ৫. পেজিনেশন লজিক (DoctorListingContainer এর itemsPerPage = 12 এর সাথে সিঙ্ক করা)
+    const page = parseInt(req.query.page, 10) || 1;
+    const perPage = parseInt(req.query.perPage, 10) || 12;
+    const skipItems = (page - 1) * perPage;
+
+    // ৬. ডাটা ফেচিং এবং কাউন্টিং
+    const currentCollection = typeof doctorsCollection !== 'undefined' ? doctorsCollection : db.collection("doctors");
+    
     const total = await currentCollection.countDocuments(query);
-
     const doctors = await currentCollection.find(query)
       .sort(sortObj)
       .skip(skipItems)
       .limit(perPage)
       .toArray();
 
-    // ফ্রন্টএন্ডে ডাটা পাঠানোর অবজেক্ট
-    res.send({ total, doctors });
+    // ৭. ফ্রন্টএন্ড কন্টেইনারের এক্সপেক্টেড অবজেক্ট ফরম্যাটে রেসপন্স পাঠানো
+    res.status(200).json({ total, doctors });
 
   } catch (error) {
     console.error("Error in /api/doctors:", error);
-    res.status(500).send({ message: "Server error", error: error.message });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
