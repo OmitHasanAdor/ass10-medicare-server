@@ -142,7 +142,45 @@ async function run() {
     });
 
 
+// GET /api/admin/payments-ledger
+app.get("/api/admin/payments-ledger", async (req, res) => {
+  try {
+    // এখানে আপনার এক্সপ্রেস প্রজেক্টের DB ইনস্ট্যান্স ব্যবহার করুন
+    const paymentsCollection = db.collection("payments");
 
+    const ledgerData = await paymentsCollection.aggregate([
+      {
+        // 'user' কালেকশন থেকে পেশেন্টের ডাটা আনা
+        $lookup: {
+          from: "user",
+          localField: "patientId",
+          foreignField: "_id",
+          as: "patientInfo"
+        }
+      },
+      { $unwind: { path: "$patientInfo", preserveNullAndEmptyArrays: true } },
+      {
+        // 'doctors' কালেকশন থেকে ডক্টরের ডাটা আনা
+        $lookup: {
+          from: "doctors",
+          localField: "doctorId",
+          foreignField: "_id",
+          as: "doctorInfo"
+        }
+      },
+      { $unwind: { path: "$doctorInfo", preserveNullAndEmptyArrays: true } },
+      {
+        // সাম্প্রতিক পেমেন্টগুলো সবার আগে দেখানোর জন্য সর্ট
+        $sort: { "paymentDate": -1 }
+      }
+    ]).toArray();
+
+    res.status(200).json(ledgerData);
+  } catch (error) {
+    console.error("Ledger aggregation error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
 
 
     // 🟡 ২. Update/Modify Prescription API
