@@ -1170,6 +1170,21 @@ app.delete('/api/users/:id', async (req, res) => {
       }
     });
 
+
+    // এডমিন প্যানেলে ভেরিফিকেশনের জন্য সব ডক্টরের লিস্ট আনার এপিআই
+app.get('/api/admin/doctors-verification', async (req, res) => {
+  try {
+    // ডাটাবেজ থেকে সব ডক্টরকে নিয়ে আসা (প্রয়োজনে সর্ট করতে পারেন)
+    const result = await doctorsCollection.find().sort({ _id: -1 }).toArray();
+    
+    // সরাসরি অ্যারে রেসপন্স পাঠানো হচ্ছে
+    res.status(200).send(result);
+  } catch (error) {
+    console.error("Error fetching verification list:", error);
+    res.status(500).send({ message: error.message });
+  }
+});
+
     // 💳 ২. ডাইনামিক পেমেন্ট ইনটেন্ট তৈরি করার এপিআই (Stripe Payment Intent)
     app.post('/api/create-payment-intent', async (req, res) => {
       try {
