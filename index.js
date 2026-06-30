@@ -1118,6 +1118,17 @@ app.delete('/api/users/:id', async (req, res) => {
     res.status(500).send({ message: error.message });
   }
 });
+app.get('/api/doctors', async (req, res) => {
+    let query = {};
+    
+    // যদি ফ্রন্টএন্ড থেকে ?status=verified পাঠানো হয়
+    if (req.query.status === 'verified') {
+        query.verificationStatus = "Verified"; 
+    }
+    
+    const doctors = await db.collection("doctors").find(query).toArray();
+    res.json(doctors);
+});
 
     // 🎯 ১. ফ্রন্টএন্ড থেকে ইউজার ডাটা রিসিভ করার জন্য POST API
     app.post('/api/users', async (req, res) => {
