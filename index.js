@@ -1046,7 +1046,42 @@ app.delete('/api/users/:id', async (req, res) => {
       }
     });
 
+// 🎯 গুগল লগইনের পর ইউজার ডাটা কাস্টম 'users' কালেকশনে সিঙ্ক করার API
+app.post('/api/auth/google-sync', async (req, res) => {
+  try {
+    const { name, email, photo } = req.body;
 
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // ১. চেক করা—ইউজার অলরেডি কাস্টম 'users' কালেকশনে আছে কিনা
+    const existingUser = await usersCollection.findOne({ email });
+
+    if (!existingUser) {
+      // ২. না থাকলে নতুন একটি পেশেন্ট প্রোফাইল অবজেক্ট তৈরি করা (আপনার স্ট্রাকচার অনুযায়ী)
+      const newPatientDoc = {
+        name: name,
+        email: email,
+        phone: "", // গুগল থেকে ফোন পাওয়া যায় না, তাই ডিফল্ট ফাঁকা থাকবে
+        gender: "male", // ডিফল্ট জেন্ডার
+        photo: photo || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde",
+        role: "patient", // 🎯 ডিফল্ট রোল সবসময় 'patient'
+        status: "active", // ডিফল্ট স্ট্যাটাস একটিভ
+        createdAt: new Date().toISOString()
+      };
+
+      const result = await usersCollection.insertOne(newPatientDoc);
+      return res.status(201).json({ success: true, message: "Google profile synced as patient", insertedId: result.insertedId });
+    }
+
+    // ইউজার আগে থেকেই থাকলে জাস্ট সাকসেস রিটার্ন করবে
+    res.status(200).json({ success: true, message: "User already exists in users collection" });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
     // job search related
     app.get('/api/current-user', async (req, res) => {
       try {
