@@ -988,6 +988,80 @@ app.patch('/api/doctors/:id/verify', async (req, res) => {
   }
 });
 
+app.get('/api/admin/analytics', async (req, res) => {
+  try {
+    // ১. টপ কার্ডের স্ট্যাটিস্টিকস ক্যালকুলেশন
+    const totalDoctors = await db.collection("doctors").countDocuments();
+    
+    // পেশেন্ট কাউন্ট এবং টোটাল বুকিং কাস্টম এ্যাপয়েন্টমেন্ট কালেকশন থেকে আসবে (এখানে appointments কালেকশন ধরা হয়েছে)
+    const totalAppointments = await db.collection("appointments").countDocuments();
+    
+    // ইউনিক পেশেন্ট কাউন্ট করার জন্য distinct ব্যবহার করা হয়েছে
+    const uniquePatients = await db.collection("appointments").distinct("patientId");
+    const totalPatientsCount = uniquePatients.length;
+
+    // মোট উপার্জিত কো-পে (Gross Co-pays) ক্যালকুলেশন
+    const payments = await db.collection("payments").find({}).toArray();
+    const grossCopays = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+
+    // ২. চার্ট ১: Doctor Performance Index (Ratings based)
+    const doctorsList = await db.collection("doctors").find({ verificationStatus: "Verified" }).toArray();
+    const barChartData = doctorsList.map(doc => ({
+      name: doc.doctorName ? doc.doctorName.split(" ").slice(0, 2).join(" ") : "Doctor", // নাম বড় হলে ছোট করার জন্য
+      rating: doc.rating || 0
+    }));
+
+    // ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart Based on Specialization)
+    const specialtyData = await db.collection("doctors").aggregate([
+      {
+        $group: {
+          _id: "$specialization",
+          count: { $sum: 1 }
+        }
+      }
+    ]).toArray();
+
+    const pieChartData = specialtyData.map(item => ({
+      name: item._id || "General Medicine",
+      value: item.count
+    }));
+
+    // ৪. চার্ট ৩: Appointment Timeline (Last 7 Days)
+    const timelineData = await db.collection("appointments").aggregate([
+      {
+        $group: {
+          _id: { $substr: ["$createdAt", 0, 10] }, // YYYY-MM-DD ফরম্যাট কাট করা
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } },
+      { $limit: 7 }
+    ]).toArray();
+
+    const lineChartData = timelineData.map(item => ({
+      date: item._id,
+      bookings: item.count
+    }));
+
+    // রেসপন্স অবজেক্ট পাঠানো
+    res.status(200).json({
+      stats: {
+        totalPatients: totalPatientsCount,
+        verifiedClinicians: totalDoctors,
+        allBookings: totalAppointments,
+        grossCopays: grossCopays
+      },
+      barChartData,
+      pieChartData,
+      lineChartData
+    });
+
+  } catch (error) {
+    console.error("Analytics fetch error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ১. সব ইউজারদের ডাটা পাওয়ার রুট
 app.get('/api/users', async (req, res) => {
   try {
