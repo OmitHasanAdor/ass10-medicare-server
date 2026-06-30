@@ -1011,26 +1011,37 @@ app.get('/api/admin/analytics', async (req, res) => {
       rating: doc.rating || 0
     }));
 
-    // ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart Based on Specialization)
+// ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart Based on Specialization)
     const specialtyData = await db.collection("doctors").aggregate([
       {
         $group: {
-          _id: "$specialization",
+          _id: { $ifNull: ["$specialization", "General Medicine"] }, // ফিল্ড মিসিং থাকলে হ্যান্ডেল করবে
           count: { $sum: 1 }
         }
       }
     ]).toArray();
 
     const pieChartData = specialtyData.map(item => ({
-      name: item._id || "General Medicine",
+      name: item._id,
       value: item.count
     }));
 
     // ৪. চার্ট ৩: Appointment Timeline (Last 7 Days)
     const timelineData = await db.collection("appointments").aggregate([
       {
+        $project: {
+          dateStr: {
+            $cond: {
+              if: { $eq: [{ $type: "$createdAt" }, "date"] },
+              then: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+              else: { $substr: ["$createdAt", 0, 10] } // যদি ডাটাবেজে আগে থেকেই স্ট্রিং থাকে
+            }
+          }
+        }
+      },
+      {
         $group: {
-          _id: { $substr: ["$createdAt", 0, 10] }, // YYYY-MM-DD ফরম্যাট কাট করা
+          _id: "$dateStr",
           count: { $sum: 1 }
         }
       },
@@ -1039,7 +1050,7 @@ app.get('/api/admin/analytics', async (req, res) => {
     ]).toArray();
 
     const lineChartData = timelineData.map(item => ({
-      date: item._id,
+      date: item._id || "No Date",
       bookings: item.count
     }));
 
