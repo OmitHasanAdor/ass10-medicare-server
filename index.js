@@ -992,30 +992,30 @@ app.get('/api/admin/analytics', async (req, res) => {
   try {
     // ১. টপ কার্ডের স্ট্যাটিস্টিকস ক্যালকুলেশন
     const totalDoctors = await db.collection("doctors").countDocuments();
-    
-    // পেশেন্ট কাউন্ট এবং টোটাল বুকিং কাস্টম এ্যাপয়েন্টমেন্ট কালেকশন থেকে আসবে (এখানে appointments কালেকশন ধরা হয়েছে)
     const totalAppointments = await db.collection("appointments").countDocuments();
     
-    // ইউনিক পেশেন্ট কাউন্ট করার জন্য distinct ব্যবহার করা হয়েছে
     const uniquePatients = await db.collection("appointments").distinct("patientId");
     const totalPatientsCount = uniquePatients.length;
 
-    // মোট উপার্জিত কো-পে (Gross Co-pays) ক্যালকুলেশন
     const payments = await db.collection("payments").find({}).toArray();
     const grossCopays = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
 
-    // ২. চার্ট ১: Doctor Performance Index (Ratings based)
-    const doctorsList = await db.collection("doctors").find({ verificationStatus: "Verified" }).toArray();
+    // ২. চার্ট ১: Doctor Performance Index
+    // ⚠️ আপনার ডাটাবেজে "Verified" বানানের 'v' ছোট হাতের, তাই $regex দিয়ে সেফ করা হলো যেন ছোট/বড় হাত দুইটাই পায়
+    const doctorsList = await db.collection("doctors").find({ 
+      verificationStatus: { $regex: /^verified$/i } 
+    }).toArray();
+
     const barChartData = doctorsList.map(doc => ({
-      name: doc.doctorName ? doc.doctorName.split(" ").slice(0, 2).join(" ") : "Doctor", // নাম বড় হলে ছোট করার জন্য
-      rating: doc.rating || 0
+      name: doc.doctorName ? doc.doctorName.split(" ").slice(0, 2).join(" ") : "Doctor",
+      rating: Number(doc.rating) || 0 // ডাটা টাইপ নাম্বার শিওর করার জন্য
     }));
 
-// ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart Based on Specialization)
+    // ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart)
     const specialtyData = await db.collection("doctors").aggregate([
       {
         $group: {
-          _id: { $ifNull: ["$specialization", "General Medicine"] }, // ফিল্ড মিসিং থাকলে হ্যান্ডেল করবে
+          _id: { $ifNull: ["$specialization", "General Medicine"] },
           count: { $sum: 1 }
         }
       }
@@ -1026,15 +1026,22 @@ app.get('/api/admin/analytics', async (req, res) => {
       value: item.count
     }));
 
-    // ৪. চার্ট ৩: Appointment Timeline (Last 7 Days)
+    // ৪. চার্ট ৩: Appointment Timeline (Last 7 Days) - সম্পূর্ণ ফিক্সড পাইপলাইন
     const timelineData = await db.collection("appointments").aggregate([
       {
         $project: {
+          createdAt: 1, // 👈 এটি অবশ্যই রাখতে হবে নয়তো নিচের $type চেক কাজ করবে না
           dateStr: {
             $cond: {
               if: { $eq: [{ $type: "$createdAt" }, "date"] },
               then: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-              else: { $substr: ["$createdAt", 0, 10] } // যদি ডাটাবেজে আগে থেকেই স্ট্রিং থাকে
+              else: { 
+                $cond: {
+                  if: { $eq: [{ $type: "$createdAt" }, "missing"] },
+                  then: "No Date",
+                  else: { $substr: ["$createdAt", 0, 10] }
+                }
+              }
             }
           }
         }
@@ -1054,7 +1061,9 @@ app.get('/api/admin/analytics', async (req, res) => {
       bookings: item.count
     }));
 
-    // রেসপন্স অবজেক্ট পাঠানো
+    console.log("Backend Chart Logs:", { barChartData, pieChartData, lineChartData });
+
+    // রেসপন্স পাঠানো
     res.status(200).json({
       stats: {
         totalPatients: totalPatientsCount,
