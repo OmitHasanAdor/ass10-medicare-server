@@ -74,63 +74,66 @@ async function run() {
     });
 
 
-    app.get('/api/public/home-analytics', async (req, res) => {
-      try {
-        // ক) Platform Statistics কাউন্ট করা
-        const totalDoctors = await db.collection("doctors").countDocuments({ verificationStatus: "Verified" });
-        const totalAppointments = await db.collection("appointments").countDocuments();
+app.get('/api/public/home-analytics', async (req, res) => {
+  try {
+    // ক) Platform Statistics কাউন্ট করা
+    const totalDoctors = await db.collection("doctors").countDocuments({ verificationStatus: "Verified" });
+    const totalAppointments = await db.collection("appointments").countDocuments();
 
-        // ইউনিক পেশেন্ট আইডি কাউন্ট appointments থেকে
-        const uniquePatients = await db.collection("appointments").distinct("patientId");
-        const totalPatientsCount = uniquePatients.length;
+    // FIXED: distinct() এর বদলে $group এগ্রিগেশন ব্যবহার করা হয়েছে যা apiStrict:true মোডে ১০০% কাজ করবে
+    const uniquePatientsGroup = await db.collection("appointments").aggregate([
+      { $group: { _id: "$patientId" } }
+    ]).toArray();
+    
+    const totalPatientsCount = uniquePatientsGroup.length;
 
-        const totalReviewsCount = await db.collection("reviews").countDocuments();
+    const totalReviewsCount = await db.collection("reviews").countDocuments();
 
-        // খ) Patient Success Stories (Reviews + User Name Join)
-        const successStories = await db.collection("reviews").aggregate([
-          {
-            $lookup: {
-              from: "users",                 // আপনার কাস্টম ইউজার কালেকশন
-              localField: "patientId",       // রিভিউ কালেকশনের ফিল্ড
-              foreignField: "_id",           // ইউজার কালেকশনের অবজেক্ট আইডি
-              as: "patientInfo"
-            }
-          },
-          {
-            $unwind: {
-              path: "$patientInfo",
-              preserveNullAndEmptyArrays: true // যদি কোনো কারণে ইউজার ডিলিটও হয়ে যায় যেন ক্র্যাশ না করে
-            }
-          },
-          {
-            $project: {
-              _id: 1,
-              rating: 1,
-              reviewText: 1,
-              reviewDate: 1,
-              patientName: { $ifNull: ["$patientInfo.name", "Anonymous Patient"] } // নাম না থাকলে ডিফল্ট নাম
-            }
-          },
-          { $sort: { reviewDate: -1 } }, // লেটেস্ট রিভিউ আগে দেখানোর জন্য
-          { $limit: 6 }                  // সর্বোচ্চ ৬টি রিভিউ হোমপেজে দেখাবে
-        ]).toArray();
+    // খ) Patient Success Stories (Reviews + User Name Join)
+    const successStories = await db.collection("reviews").aggregate([
+      {
+        $lookup: {
+          from: "users",                 // আপনার কাস্টম ইউজার কালেকশন
+          localField: "patientId",       // রিভিউ কালেকশনের ফিল্ড
+          foreignField: "_id",           // ইউজার কালেকশনের অবজেক্ট আইডি
+          as: "patientInfo"
+        }
+      },
+      {
+        $unwind: {
+          path: "$patientInfo",
+          preserveNullAndEmptyArrays: true // যদি কোনো কারণে ইউজার ডিলিটও হয়ে যায় যেন ক্র্যাশ না করে
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          rating: 1,
+          reviewText: 1,
+          reviewDate: 1,
+          patientName: { $ifNull: ["$patientInfo.name", "Anonymous Patient"] } // নাম না থাকলে ডিফল্ট নাম
+        }
+      },
+      { $sort: { reviewDate: -1 } }, // লেটেস্ট রিভিউ আগে দেখানোর জন্য
+      { $limit: 6 }                  // সর্বোচ্চ ৬টি রিভিউ হোমপেজে দেখাবে
+    ]).toArray();
 
-        // ফাইনাল রেসপন্স
-        res.status(200).json({
-          stats: {
-            totalDoctors: totalDoctors || 0,
-            totalPatients: totalPatientsCount || 0,
-            totalAppointments: totalAppointments || 0,
-            totalReviews: totalReviewsCount || 0
-          },
-          successStories
-        });
-
-      } catch (error) {
-        console.error("Home analytics error:", error);
-        res.status(500).json({ error: error.message });
-      }
+    // ফাইনাল রেসপন্স
+    res.status(200).json({
+      stats: {
+        totalDoctors: totalDoctors || 0,
+        totalPatients: totalPatientsCount || 0,
+        totalAppointments: totalAppointments || 0,
+        totalReviews: totalReviewsCount || 0
+      },
+      successStories
     });
+
+  } catch (error) {
+    console.error("Home analytics error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
     // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড (index.js)
 
     app.put('/api/doctor/save-credentials', async (req, res) => {
