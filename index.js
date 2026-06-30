@@ -1049,99 +1049,100 @@ app.get('/api/public/home-analytics', async (req, res) => {
       }
     });
 
-    app.get('/api/admin/analytics', async (req, res) => {
-      try {
-        // ১. টপ কার্ডের স্ট্যাটিস্টিকস ক্যালকুলেশন
-        const totalDoctors = await db.collection("doctors").countDocuments();
-        const totalAppointments = await db.collection("appointments").countDocuments();
+app.get('/api/admin/analytics', async (req, res) => {
+  try {
+    // ১. টপカードের স্ট্যাটিস্টিকস ক্যালকুলেশন
+    const totalDoctors = await db.collection("doctors").countDocuments();
+    const totalAppointments = await db.collection("appointments").countDocuments();
 
-        const uniquePatients = await db.collection("appointments").distinct("patientId");
-        const totalPatientsCount = uniquePatients.length;
+    // FIXED: distinct() এর বদলে $group এগ্রিগেশন ব্যবহার করা হয়েছে যেন apiStrict মোডে ক্র্যাশ না করে
+    const uniquePatientsGroup = await db.collection("appointments").aggregate([
+      { $group: { _id: "$patientId" } }
+    ]).toArray();
+    
+    const totalPatientsCount = uniquePatientsGroup.length;
 
-        const payments = await db.collection("payments").find({}).toArray();
-        const grossCopays = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+    const payments = await db.collection("payments").find({}).toArray();
+    const grossCopays = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
 
-        // ২. চার্ট ১: Doctor Performance Index
-        // ⚠️ আপনার ডাটাবেজে "Verified" বানানের 'v' ছোট হাতের, তাই $regex দিয়ে সেফ করা হলো যেন ছোট/বড় হাত দুইটাই পায়
-        const doctorsList = await db.collection("doctors").find({
-          verificationStatus: { $regex: /^verified$/i }
-        }).toArray();
+    // ২. চার্ট ১: Doctor Performance Index
+    const doctorsList = await db.collection("doctors").find({
+      verificationStatus: { $regex: /^verified$/i }
+    }).toArray();
 
-        const barChartData = doctorsList.map(doc => ({
-          name: doc.doctorName ? doc.doctorName.split(" ").slice(0, 2).join(" ") : "Doctor",
-          rating: Number(doc.rating) || 0 // ডাটা টাইপ নাম্বার শিওর করার জন্য
-        }));
+    const barChartData = doctorsList.map(doc => ({
+      name: doc.doctorName ? doc.doctorName.split(" ").slice(0, 2).join(" ") : "Doctor",
+      rating: Number(doc.rating) || 0 // ডাটা টাইপ নাম্বার শিওর করার জন্য
+    }));
 
-        // ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart)
-        const specialtyData = await db.collection("doctors").aggregate([
-          {
-            $group: {
-              _id: { $ifNull: ["$specialization", "General Medicine"] },
-              count: { $sum: 1 }
-            }
-          }
-        ]).toArray();
+    // ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart)
+    const specialtyData = await db.collection("doctors").aggregate([
+      {
+        $group: {
+          _id: { $ifNull: ["$specialization", "General Medicine"] },
+          count: { $sum: 1 }
+        }
+      }
+    ]).toArray();
 
-        const pieChartData = specialtyData.map(item => ({
-          name: item._id,
-          value: item.count
-        }));
+    const pieChartData = specialtyData.map(item => ({
+      name: item._id,
+      value: item.count
+    }));
 
-        // ৪. চার্ট ৩: Appointment Timeline (Last 7 Days) - সম্পূর্ণ ফিক্সড পাইপলাইন
-        const timelineData = await db.collection("appointments").aggregate([
-          {
-            $project: {
-              createdAt: 1, // 👈 এটি অবশ্যই রাখতে হবে নয়তো নিচের $type চেক কাজ করবে না
-              dateStr: {
+    // ৪. চার্ট ৩: Appointment Timeline (Last 7 Days)
+    const timelineData = await db.collection("appointments").aggregate([
+      {
+        $project: {
+          createdAt: 1, 
+          dateStr: {
+            $cond: {
+              if: { $eq: [{ $type: "$createdAt" }, "date"] },
+              then: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+              else: {
                 $cond: {
-                  if: { $eq: [{ $type: "$createdAt" }, "date"] },
-                  then: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-                  else: {
-                    $cond: {
-                      if: { $eq: [{ $type: "$createdAt" }, "missing"] },
-                      then: "No Date",
-                      else: { $substr: ["$createdAt", 0, 10] }
-                    }
-                  }
+                  if: { $eq: [{ $type: "$createdAt" }, "missing"] },
+                  then: "No Date",
+                  else: { $substr: ["$createdAt", 0, 10] }
                 }
               }
             }
-          },
-          {
-            $group: {
-              _id: "$dateStr",
-              count: { $sum: 1 }
-            }
-          },
-          { $sort: { _id: 1 } },
-          { $limit: 7 }
-        ]).toArray();
+          }
+        }
+      },
+      {
+        $group: {
+          _id: "$dateStr",
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } },
+      { $limit: 7 }
+    ]).toArray();
 
-        const lineChartData = timelineData.map(item => ({
-          date: item._id || "No Date",
-          bookings: item.count
-        }));
+    const lineChartData = timelineData.map(item => ({
+      date: item._id || "No Date",
+      bookings: item.count
+    }));
 
-        // console.log("Backend Chart Logs:", { barChartData, pieChartData, lineChartData });
-
-        // রেসপন্স পাঠানো
-        res.status(200).json({
-          stats: {
-            totalPatients: totalPatientsCount,
-            verifiedClinicians: totalDoctors,
-            allBookings: totalAppointments,
-            grossCopays: grossCopays
-          },
-          barChartData,
-          pieChartData,
-          lineChartData
-        });
-
-      } catch (error) {
-        console.error("Analytics fetch error:", error);
-        res.status(500).json({ error: error.message });
-      }
+    // রেসপন্স পাঠানো
+    res.status(200).json({
+      stats: {
+        totalPatients: totalPatientsCount,
+        verifiedClinicians: totalDoctors,
+        allBookings: totalAppointments,
+        grossCopays: grossCopays
+      },
+      barChartData,
+      pieChartData,
+      lineChartData
     });
+
+  } catch (error) {
+    console.error("Analytics fetch error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
     // ১. সব ইউজারদের ডাটা পাওয়ার রুট
     app.get('/api/users', async (req, res) => {
