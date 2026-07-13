@@ -7,13 +7,13 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // ==========================================
-// ১. MIDDLEWARES (সবার উপরে থাকবে)
+// ১. MIDDLEWARES
 // ==========================================
 app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "https://ass10-medicare-client-side.vercel.app", // 🎯 কোনো টেইলিন স্ল্যাশ (/) থাকবে না
+      "https://ass10-medicare-client-side.vercel.app",
     ],
     credentials: true,
   })
@@ -1347,7 +1347,7 @@ app.get('/api/doctors', async (req, res) => {
   }
 });
 
-    // 🩺 ১. নির্দিষ্ট ডক্টরের ডিটেইলস গেট করার এপিআই (Next.js-এর জন্য)
+  
     app.get('/api/doctors/:id', async (req, res) => {
       try {
         const id = req.params.id;
