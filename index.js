@@ -564,7 +564,6 @@ async function run() {
         const result = await prescriptionsCollection.insertOne(newPrescription);
 
         if (result.insertedId) {
-          // 🎯 অ্যাপয়েন্টমেন্টের স্ট্যাটাস পরিবর্তন করে 'completed' করা হচ্ছে
           await appointmentsCollection.updateOne(
             { _id: new ObjectId(appointmentId) },
             { $set: { appointmentStatus: 'completed' } }
@@ -685,7 +684,6 @@ async function run() {
         res.status(500).send("Failed to add review");
       }
     });
-    // ১. নির্দিষ্ট পেশেন্টের দেওয়া সমস্ত রিভিউ দেখার API (GET)
     app.get('/api/reviews/patient/:patientId', async (req, res) => {
       try {
         const { patientId } = req.params;
@@ -712,12 +710,10 @@ async function run() {
       }
     });
 
-    // 💳 পেশেন্টের সম্পূর্ণ পেমেন্ট হিস্ট্রি ডক্টরের নামসহ নিয়ে আসার API (GET)
     app.get('/api/payments/patient/:patientId', async (req, res) => {
       try {
         const { patientId } = req.params;
 
-        // payments কালেকশন থেকে ডাটা ফেচ করে doctors কালেকশনের সাথে যুক্ত করা হচ্ছে
         const paymentHistory = await db.collection("payments").aggregate([
           {
             $match: { patientId: new ObjectId(patientId) }
@@ -748,12 +744,10 @@ async function run() {
       }
     });
 
-    // ❌ ৩. অ্যাপয়েন্টমেন্ট ডিলিট/ক্যান্সেল করার API (DELETE)
     app.delete('/api/appointments/cancel/:id', async (req, res) => {
       try {
         const { id } = req.params;
 
-        // আপনার রিকোয়ারমেন্ট অনুযায়ী সরাসরি ডাটাবেজ থেকে ডিলিট করা হচ্ছে
         const result = await appointmentsCollection.deleteOne({ _id: new ObjectId(id) });
         res.send(result);
       } catch (error) {
@@ -762,7 +756,6 @@ async function run() {
       }
     });
 
-    // 🔄 ২. অ্যাপয়েন্টমেন্ট রিশেডিউল (Reschedule) করার API (PATCH)
     app.patch('/api/appointments/reschedule/:id', async (req, res) => {
       try {
         const { id } = req.params;
@@ -789,12 +782,9 @@ async function run() {
       }
     });
 
-    // 🔍 ১. নির্দিষ্ট পেশেন্টের সমস্ত অ্যাপয়েন্টমেন্ট ডক্টরের ডিটেইলসসহ নিয়ে আসার API (GET)
     app.get('/api/appointments/patient/:patientId', async (req, res) => {
       try {
         const { patientId } = req.params;
-
-        // MongoDB Aggregation Pipeline ব্যবহার করে ডক্টরের তথ্য যুক্ত করা হচ্ছে
         const appointments = await appointmentsCollection.aggregate([
           {
             $match: { patientId: new ObjectId(patientId) }
@@ -875,7 +865,6 @@ async function run() {
     });
 
 
-    // 💳 ১. Stripe Hosted Checkout Session তৈরি করার API (Form POST)
     app.post('/api/create-checkout-session', async (req, res) => {
       try {
         const { doctorId, doctorName, consultationFee, appointmentDate, appointmentTime, symptoms } = req.body;
@@ -893,7 +882,6 @@ async function run() {
 
         const patientId = patientUser._id.toString();
 
-        // 🚀 এখানে consultationFee নিশ্চিত করে ইন্টিজারে কনভার্ট করা হচ্ছে
         const feeAmount = parseInt(consultationFee) || 0;
         const amountInCents = feeAmount * 100;
 
@@ -936,7 +924,6 @@ async function run() {
       }
     });
 
-    // 🔄 ২. পেমেন্ট সাকসেস হ্যান্ডলার API
     app.get('/api/payment-success', async (req, res) => {
       try {
         const { session_id } = req.query;
@@ -970,7 +957,6 @@ async function run() {
               createdAt: new Date()
             };
 
-            // ডাটাবেজে অ্যাপয়েন্টমেন্ট ইনসার্ট করা
             const appointmentResult = await appointmentsCollection.insertOne(newAppointment);
             appointmentId = appointmentResult.insertedId;
           } else {
@@ -994,7 +980,6 @@ async function run() {
             await paymentsCollection.insertOne(newPayment);
           }
 
-          // 🚀 দুটি কালেকশনেই ডেটা সেভ হয়ে যাওয়ার পর পেশেন্টকে তার ড্যাশবোর্ডের সাকসেস পেজে রিডাইরেক্ট করা
           res.redirect(`${process.env.CLIENT_URL}/dashboard/patient/appointments?status=success`);
         } else {
           res.status(400).send("Payment validation failed.");
@@ -1007,7 +992,6 @@ async function run() {
     });
 
 
-    // ডক্টরদের ভেরিফিকেশন স্ট্যাটাস আপডেট করার PATCH এপিআই
     app.patch('/api/doctors/:id/verify', async (req, res) => {
       try {
         const id = req.params.id;
@@ -1025,11 +1009,10 @@ async function run() {
 
     app.get('/api/admin/analytics', async (req, res) => {
       try {
-        // ১. টপカードের স্ট্যাটিস্টিকস ক্যালকুলেশন
         const totalDoctors = await db.collection("doctors").countDocuments();
         const totalAppointments = await db.collection("appointments").countDocuments();
 
-        // FIXED: distinct() এর বদলে $group এগ্রিগেশন ব্যবহার করা হয়েছে যেন apiStrict মোডে ক্র্যাশ না করে
+    
         const uniquePatientsGroup = await db.collection("appointments").aggregate([
           { $group: { _id: "$patientId" } }
         ]).toArray();
@@ -1118,7 +1101,6 @@ async function run() {
       }
     });
 
-    // ১. সব ইউজারদের ডাটা পাওয়ার রুট
     app.get('/api/users', async (req, res) => {
       try {
         const result = await usersCollection.find().toArray();
@@ -1128,7 +1110,6 @@ async function run() {
       }
     });
 
-    // ২. ইউজার সাসপেন্ড করার PATCH রুট
     app.patch('/api/users/:id/suspend', async (req, res) => {
       try {
         const id = req.params.id;
@@ -1157,7 +1138,6 @@ async function run() {
 
 
 
-    // 🎯 ১. ফ্রন্টএন্ড থেকে ইউজার ডাটা রিসিভ করার জন্য POST API
     app.post('/api/users', async (req, res) => {
       try {
         const userData = req.body;
@@ -1417,12 +1397,10 @@ async function run() {
 
 
 
-    // 🎯 টেস্ট রুট (ফাংশনের ভেতরে রুটগুলোর একদম শেষে রাখুন)
     app.get('/', (req, res) => {
       res.send('Medicare Express Server is running...');
     });
 
-    // 🎯 সার্ভার লিসেন করা (অবশ্যই কানেকশন সাকসেস হওয়ার পর ফাংশনের ভেতরে থাকবে)
     app.listen(port, () => {
       console.log(`Medicare Server is listening on port ${port}`);
     });
@@ -1432,5 +1410,4 @@ async function run() {
   }
 }
 
-// ফাংশনটি এক্সিকিউট করা
 run().catch(console.dir);
