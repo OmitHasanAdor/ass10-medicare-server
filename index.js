@@ -34,15 +34,15 @@ const client = new MongoClient(uri, {
   }
 });
 
-// ==========================================
+
 // ২. MAIN ASYNC RUN FUNCTION
-// ==========================================
+
 async function run() {
   try {
-    // MongoDB কানেকশন নিশ্চিত করা
+    // MongoDB connection
     await client.connect();
 
-    // ডাটাবেজ এবং কালেকশন রেফারেন্স
+
     const db = client.db("medicaredb");
     const usersCollection = db.collection("users");
     const authUserCollection = db.collection("user");
@@ -54,14 +54,7 @@ async function run() {
 
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
-    // 📢 আপনার সমস্ত নতুন API রুট (GET, POST, PATCH) এই লাইনের নিচে লিখবেন:
-    // -------------------------------------------------------------
-    // উদাহরণ: app.get('/api/doctors', async (req, res) => { ... })
-    // -------------------------------------------------------------
 
-
-
-    // ৪. রিভিউ ডিলিট করার API (DELETE)
     app.delete('/api/reviews/delete/:id', async (req, res) => {
       try {
         const { id } = req.params;
@@ -74,67 +67,65 @@ async function run() {
     });
 
 
-app.get('/api/public/home-analytics', async (req, res) => {
-  try {
-    // ক) Platform Statistics কাউন্ট করা
-    const totalDoctors = await db.collection("doctors").countDocuments({ verificationStatus: "Verified" });
-    const totalAppointments = await db.collection("appointments").countDocuments();
+    app.get('/api/public/home-analytics', async (req, res) => {
+      try {
+        const totalDoctors = await db.collection("doctors").countDocuments({ verificationStatus: "Verified" });
+        const totalAppointments = await db.collection("appointments").countDocuments();
 
-    // FIXED: distinct() এর বদলে $group এগ্রিগেশন ব্যবহার করা হয়েছে যা apiStrict:true মোডে ১০০% কাজ করবে
-    const uniquePatientsGroup = await db.collection("appointments").aggregate([
-      { $group: { _id: "$patientId" } }
-    ]).toArray();
-    
-    const totalPatientsCount = uniquePatientsGroup.length;
 
-    const totalReviewsCount = await db.collection("reviews").countDocuments();
+        const uniquePatientsGroup = await db.collection("appointments").aggregate([
+          { $group: { _id: "$patientId" } }
+        ]).toArray();
 
-    // খ) Patient Success Stories (Reviews + User Name Join)
-    const successStories = await db.collection("reviews").aggregate([
-      {
-        $lookup: {
-          from: "users",                 // আপনার কাস্টম ইউজার কালেকশন
-          localField: "patientId",       // রিভিউ কালেকশনের ফিল্ড
-          foreignField: "_id",           // ইউজার কালেকশনের অবজেক্ট আইডি
-          as: "patientInfo"
-        }
-      },
-      {
-        $unwind: {
-          path: "$patientInfo",
-          preserveNullAndEmptyArrays: true // যদি কোনো কারণে ইউজার ডিলিটও হয়ে যায় যেন ক্র্যাশ না করে
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          rating: 1,
-          reviewText: 1,
-          reviewDate: 1,
-          patientName: { $ifNull: ["$patientInfo.name", "Anonymous Patient"] } // নাম না থাকলে ডিফল্ট নাম
-        }
-      },
-      { $sort: { reviewDate: -1 } }, // লেটেস্ট রিভিউ আগে দেখানোর জন্য
-      { $limit: 6 }                  // সর্বোচ্চ ৬টি রিভিউ হোমপেজে দেখাবে
-    ]).toArray();
+        const totalPatientsCount = uniquePatientsGroup.length;
 
-    // ফাইনাল রেসপন্স
-    res.status(200).json({
-      stats: {
-        totalDoctors: totalDoctors || 0,
-        totalPatients: totalPatientsCount || 0,
-        totalAppointments: totalAppointments || 0,
-        totalReviews: totalReviewsCount || 0
-      },
-      successStories
+        const totalReviewsCount = await db.collection("reviews").countDocuments();
+
+        // খ) Patient Success Stories (Reviews + User Name Join)
+        const successStories = await db.collection("reviews").aggregate([
+          {
+            $lookup: {
+              from: "users",                 // আপনার কাস্টম ইউজার কালেকশন
+              localField: "patientId",       // রিভিউ কালেকশনের ফিল্ড
+              foreignField: "_id",           // ইউজার কালেকশনের অবজেক্ট আইডি
+              as: "patientInfo"
+            }
+          },
+          {
+            $unwind: {
+              path: "$patientInfo",
+              preserveNullAndEmptyArrays: true // যদি কোনো কারণে ইউজার ডিলিটও হয়ে যায় যেন ক্র্যাশ না করে
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              rating: 1,
+              reviewText: 1,
+              reviewDate: 1,
+              patientName: { $ifNull: ["$patientInfo.name", "Anonymous Patient"] } // নাম না থাকলে ডিফল্ট নাম
+            }
+          },
+          { $sort: { reviewDate: -1 } }, // লেটেস্ট রিভিউ আগে দেখানোর জন্য
+          { $limit: 6 }                  // সর্বোচ্চ ৬টি রিভিউ হোমপেজে দেখাবে
+        ]).toArray();
+
+        // ফাইনাল রেসপন্স
+        res.status(200).json({
+          stats: {
+            totalDoctors: totalDoctors || 0,
+            totalPatients: totalPatientsCount || 0,
+            totalAppointments: totalAppointments || 0,
+            totalReviews: totalReviewsCount || 0
+          },
+          successStories
+        });
+
+      } catch (error) {
+        console.error("Home analytics error:", error);
+        res.status(500).json({ error: error.message });
+      }
     });
-
-  } catch (error) {
-    console.error("Home analytics error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-    // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড (index.js)
 
     app.put('/api/doctor/save-credentials', async (req, res) => {
       try {
@@ -203,10 +194,8 @@ app.get('/api/public/home-analytics', async (req, res) => {
     });
 
 
-    // GET /api/admin/payments-ledger
     app.get("/api/admin/payments-ledger", async (req, res) => {
       try {
-        // এখানে আপনার এক্সপ্রেস প্রজেক্টের DB ইনস্ট্যান্স ব্যবহার করুন
         const paymentsCollection = db.collection("payments");
 
         const ledgerData = await paymentsCollection.aggregate([
@@ -244,18 +233,15 @@ app.get('/api/public/home-analytics', async (req, res) => {
     });
 
 
-    // 🟡 ২. Update/Modify Prescription API
     app.patch('/api/prescriptions/:id', async (req, res) => {
       try {
         const { id } = req.params;
         const { diagnosis, medications, notes } = req.body;
 
-        // ১. আইডি ফরম্যাট ভ্যালিডেশন
         if (!ObjectId.isValid(id)) {
           return res.status(400).send({ success: false, message: "Invalid prescription ID format" });
         }
 
-        // 🎯 ২. সিকিউরিটি ভ্যালিডেশন: রিকোয়েস্টে প্রয়োজনীয় ফিল্ড ফাঁকা পাঠানো হয়েছে কিনা চেক করা
         if (!diagnosis || !medications) {
           return res.status(400).send({ success: false, message: "Diagnosis and Medications are required to modify Rx" });
         }
@@ -285,7 +271,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
     });
 
 
-    // 📂 backend/index.js
     app.get('/api/doctor-stats/:doctorIdOrEmail', async (req, res) => {
       try {
         const { doctorIdOrEmail } = req.params;
@@ -422,7 +407,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
       }
     });
 
-    // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড ফাইল (index.js)
     app.get('/user-role', async (req, res) => {
       try {
         const email = req.query.email;
@@ -524,8 +508,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
       }
     });
 
-    // 1. GET: ডক্টরের অ্যাপয়েন্টমেন্ট এবং কিউ ফিল্টার
-
     app.get('/api/doctor/appointments', async (req, res) => {
       try {
         const { email, status } = req.query;
@@ -541,7 +523,7 @@ app.get('/api/public/home-analytics', async (req, res) => {
           { $match: matchQuery },
           {
             $lookup: {
-              from: "users", // 🎯 ফিক্স: কালেকশনের নাম 'users' বদলে 'patients' করা হলো
+              from: "users",
               localField: "patientId",
               foreignField: "_id",
               as: "patientInfo"
@@ -557,7 +539,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
       }
     });
 
-    // 2. POST: প্রেসক্রিপশন তৈরি এবং অ্যাপয়েন্টমেন্ট কমপ্লিট করা
     app.post('/api/prescriptions', async (req, res) => {
       try {
         const { doctorId, patientId, appointmentId, diagnosis, medications, notes } = req.body;
@@ -600,9 +581,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
       }
     });
 
-    // ==========================================
-    // 3. GET: ডক্টরের আইডি অনুযায়ী সমস্ত প্রেসক্রিপশন হিস্ট্রি (Cabin Logs)
-    // ==========================================
     app.get('/api/prescriptions', async (req, res) => {
       try {
         const { doctorId } = req.query;
@@ -646,7 +624,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
       }
     });
 
-    // ২. অ্যাপয়েন্টমেন্টের স্ট্যাটাস চেঞ্চ করার PATCH API (হুবহু ঠিক আছে!)
     app.patch('/api/appointments/:id/status', async (req, res) => {
       try {
         const { id } = req.params;
@@ -658,7 +635,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
 
 
 
-        // আইডি ফরম্যাট ভ্যালিডেশন
         if (!ObjectId.isValid(id)) {
           return res.status(400).send({ success: false, message: "Invalid Appointment ID format" });
         }
@@ -678,7 +654,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
       }
     });
 
-    // ৩. আগের রিভিউ এডিট/আপডেট করার API (PATCH)
     app.patch('/api/reviews/update/:id', async (req, res) => {
       try {
         const { id } = req.params;
@@ -693,7 +668,6 @@ app.get('/api/public/home-analytics', async (req, res) => {
         res.status(500).send("Failed to update review");
       }
     });
-    // ২. নতুন রিভিউ তৈরি করার API (POST)
     app.post('/api/reviews/add', async (req, res) => {
       try {
         const { patientId, doctorId, rating, reviewText } = req.body;
@@ -1049,100 +1023,100 @@ app.get('/api/public/home-analytics', async (req, res) => {
       }
     });
 
-app.get('/api/admin/analytics', async (req, res) => {
-  try {
-    // ১. টপカードের স্ট্যাটিস্টিকস ক্যালকুলেশন
-    const totalDoctors = await db.collection("doctors").countDocuments();
-    const totalAppointments = await db.collection("appointments").countDocuments();
+    app.get('/api/admin/analytics', async (req, res) => {
+      try {
+        // ১. টপカードের স্ট্যাটিস্টিকস ক্যালকুলেশন
+        const totalDoctors = await db.collection("doctors").countDocuments();
+        const totalAppointments = await db.collection("appointments").countDocuments();
 
-    // FIXED: distinct() এর বদলে $group এগ্রিগেশন ব্যবহার করা হয়েছে যেন apiStrict মোডে ক্র্যাশ না করে
-    const uniquePatientsGroup = await db.collection("appointments").aggregate([
-      { $group: { _id: "$patientId" } }
-    ]).toArray();
-    
-    const totalPatientsCount = uniquePatientsGroup.length;
+        // FIXED: distinct() এর বদলে $group এগ্রিগেশন ব্যবহার করা হয়েছে যেন apiStrict মোডে ক্র্যাশ না করে
+        const uniquePatientsGroup = await db.collection("appointments").aggregate([
+          { $group: { _id: "$patientId" } }
+        ]).toArray();
 
-    const payments = await db.collection("payments").find({}).toArray();
-    const grossCopays = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+        const totalPatientsCount = uniquePatientsGroup.length;
 
-    // ২. চার্ট ১: Doctor Performance Index
-    const doctorsList = await db.collection("doctors").find({
-      verificationStatus: { $regex: /^verified$/i }
-    }).toArray();
+        const payments = await db.collection("payments").find({}).toArray();
+        const grossCopays = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
 
-    const barChartData = doctorsList.map(doc => ({
-      name: doc.doctorName ? doc.doctorName.split(" ").slice(0, 2).join(" ") : "Doctor",
-      rating: Number(doc.rating) || 0 // ডাটা টাইপ নাম্বার শিওর করার জন্য
-    }));
+        // ২. চার্ট ১: Doctor Performance Index
+        const doctorsList = await db.collection("doctors").find({
+          verificationStatus: { $regex: /^verified$/i }
+        }).toArray();
 
-    // ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart)
-    const specialtyData = await db.collection("doctors").aggregate([
-      {
-        $group: {
-          _id: { $ifNull: ["$specialization", "General Medicine"] },
-          count: { $sum: 1 }
-        }
-      }
-    ]).toArray();
+        const barChartData = doctorsList.map(doc => ({
+          name: doc.doctorName ? doc.doctorName.split(" ").slice(0, 2).join(" ") : "Doctor",
+          rating: Number(doc.rating) || 0 // ডাটা টাইপ নাম্বার শিওর করার জন্য
+        }));
 
-    const pieChartData = specialtyData.map(item => ({
-      name: item._id,
-      value: item.count
-    }));
+        // ৩. চার্ট ২: Ecosystem Specialty Breakdown (Pie Chart)
+        const specialtyData = await db.collection("doctors").aggregate([
+          {
+            $group: {
+              _id: { $ifNull: ["$specialization", "General Medicine"] },
+              count: { $sum: 1 }
+            }
+          }
+        ]).toArray();
 
-    // ৪. চার্ট ৩: Appointment Timeline (Last 7 Days)
-    const timelineData = await db.collection("appointments").aggregate([
-      {
-        $project: {
-          createdAt: 1, 
-          dateStr: {
-            $cond: {
-              if: { $eq: [{ $type: "$createdAt" }, "date"] },
-              then: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-              else: {
+        const pieChartData = specialtyData.map(item => ({
+          name: item._id,
+          value: item.count
+        }));
+
+        // ৪. চার্ট ৩: Appointment Timeline (Last 7 Days)
+        const timelineData = await db.collection("appointments").aggregate([
+          {
+            $project: {
+              createdAt: 1,
+              dateStr: {
                 $cond: {
-                  if: { $eq: [{ $type: "$createdAt" }, "missing"] },
-                  then: "No Date",
-                  else: { $substr: ["$createdAt", 0, 10] }
+                  if: { $eq: [{ $type: "$createdAt" }, "date"] },
+                  then: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                  else: {
+                    $cond: {
+                      if: { $eq: [{ $type: "$createdAt" }, "missing"] },
+                      then: "No Date",
+                      else: { $substr: ["$createdAt", 0, 10] }
+                    }
+                  }
                 }
               }
             }
-          }
-        }
-      },
-      {
-        $group: {
-          _id: "$dateStr",
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } },
-      { $limit: 7 }
-    ]).toArray();
+          },
+          {
+            $group: {
+              _id: "$dateStr",
+              count: { $sum: 1 }
+            }
+          },
+          { $sort: { _id: 1 } },
+          { $limit: 7 }
+        ]).toArray();
 
-    const lineChartData = timelineData.map(item => ({
-      date: item._id || "No Date",
-      bookings: item.count
-    }));
+        const lineChartData = timelineData.map(item => ({
+          date: item._id || "No Date",
+          bookings: item.count
+        }));
 
-    // রেসপন্স পাঠানো
-    res.status(200).json({
-      stats: {
-        totalPatients: totalPatientsCount,
-        verifiedClinicians: totalDoctors,
-        allBookings: totalAppointments,
-        grossCopays: grossCopays
-      },
-      barChartData,
-      pieChartData,
-      lineChartData
+        // রেসপন্স পাঠানো
+        res.status(200).json({
+          stats: {
+            totalPatients: totalPatientsCount,
+            verifiedClinicians: totalDoctors,
+            allBookings: totalAppointments,
+            grossCopays: grossCopays
+          },
+          barChartData,
+          pieChartData,
+          lineChartData
+        });
+
+      } catch (error) {
+        console.error("Analytics fetch error:", error);
+        res.status(500).json({ error: error.message });
+      }
     });
-
-  } catch (error) {
-    console.error("Analytics fetch error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
 
     // ১. সব ইউজারদের ডাটা পাওয়ার রুট
     app.get('/api/users', async (req, res) => {
@@ -1285,69 +1259,69 @@ app.get('/api/admin/analytics', async (req, res) => {
     });
 
 
-app.get('/api/doctors', async (req, res) => {
-  try {
-    console.log('Server side doctor query:', req.query);
-    
-    // ১. বেস কোয়েরি (শুধুমাত্র ভেরিফাইড ডক্টরদের দেখাবে)
-    // ডাটাবেজে ডাটা টেস্ট করার সময় এটি "Verified" রাখতে হবে (বড় হাতের V)
-    const query = { verificationStatus: "Verified" };
+    app.get('/api/doctors', async (req, res) => {
+      try {
+        console.log('Server side doctor query:', req.query);
 
-    // ২. সার্চ লজিক (নাম এবং হসপিটাল)
-    if (req.query.search && req.query.search.trim() !== '') {
-      query.$or = [
-        { doctorName: { $regex: req.query.search.trim(), $options: 'i' } },
-        { hospitalName: { $regex: req.query.search.trim(), $options: 'i' } }
-      ];
-    }
+        // ১. বেস কোয়েরি (শুধুমাত্র ভেরিফাইড ডক্টরদের দেখাবে)
+        // ডাটাবেজে ডাটা টেস্ট করার সময় এটি "Verified" রাখতে হবে (বড় হাতের V)
+        const query = { verificationStatus: "Verified" };
 
-    // ৩. স্পেশালাইজেশন ফিল্টার (Case-insensitive check)
-    if (req.query.specialization) {
-      const spec = req.query.specialization.toLowerCase().trim();
-      if (spec !== 'all' && spec !== 'all specialties' && spec !== '') {
-        query.specialization = { $regex: `^${req.query.specialization.trim()}$`, $options: 'i' };
+        // ২. সার্চ লজিক (নাম এবং হসপিটাল)
+        if (req.query.search && req.query.search.trim() !== '') {
+          query.$or = [
+            { doctorName: { $regex: req.query.search.trim(), $options: 'i' } },
+            { hospitalName: { $regex: req.query.search.trim(), $options: 'i' } }
+          ];
+        }
+
+        // ৩. স্পেশালাইজেশন ফিল্টার (Case-insensitive check)
+        if (req.query.specialization) {
+          const spec = req.query.specialization.toLowerCase().trim();
+          if (spec !== 'all' && spec !== 'all specialties' && spec !== '') {
+            query.specialization = { $regex: `^${req.query.specialization.trim()}$`, $options: 'i' };
+          }
+        }
+
+        // ৪. সোর্টিং লজিক (🎯 DoctorFilters-এর আইডির সাথে ১০০% ম্যাচ করা হয়েছে)
+        let sortObj = {};
+        if (req.query.sort === 'fee-low-high') {
+          sortObj.consultationFee = 1;      // কম থেকে বেশি
+        } else if (req.query.sort === 'fee-high-low') {
+          sortObj.consultationFee = -1;     // বেশি থেকে কম
+        } else if (req.query.sort === 'experience') {
+          sortObj.experience = -1;          // অভিজ্ঞতার ভিত্তিতে (বেশি থেকে কম)
+        } else if (req.query.sort === 'rating') {
+          sortObj.rating = -1;              // রেটিং এর ভিত্তিতে
+        } else {
+          sortObj._id = -1;                 // ডিফল্ট: নতুন ডক্টর আগে
+        }
+
+        // ৫. পেজিনেশন লজিক (DoctorListingContainer এর itemsPerPage = 12 এর সাথে সিঙ্ক করা)
+        const page = parseInt(req.query.page, 10) || 1;
+        const perPage = parseInt(req.query.perPage, 10) || 12;
+        const skipItems = (page - 1) * perPage;
+
+        // ৬. ডাটা ফেচিং এবং কাউন্টিং
+        const currentCollection = typeof doctorsCollection !== 'undefined' ? doctorsCollection : db.collection("doctors");
+
+        const total = await currentCollection.countDocuments(query);
+        const doctors = await currentCollection.find(query)
+          .sort(sortObj)
+          .skip(skipItems)
+          .limit(perPage)
+          .toArray();
+
+        // ৭. ফ্রন্টএন্ড কন্টেইনারের এক্সপেক্টেড অবজেক্ট ফরম্যাটে রেসপন্স পাঠানো
+        res.status(200).json({ total, doctors });
+
+      } catch (error) {
+        console.error("Error in /api/doctors:", error);
+        res.status(500).json({ message: "Server error", error: error.message });
       }
-    }
+    });
 
-    // ৪. সোর্টিং লজিক (🎯 DoctorFilters-এর আইডির সাথে ১০০% ম্যাচ করা হয়েছে)
-    let sortObj = {};
-    if (req.query.sort === 'fee-low-high') {
-      sortObj.consultationFee = 1;      // কম থেকে বেশি
-    } else if (req.query.sort === 'fee-high-low') {
-      sortObj.consultationFee = -1;     // বেশি থেকে কম
-    } else if (req.query.sort === 'experience') {
-      sortObj.experience = -1;          // অভিজ্ঞতার ভিত্তিতে (বেশি থেকে কম)
-    } else if (req.query.sort === 'rating') {
-      sortObj.rating = -1;              // রেটিং এর ভিত্তিতে
-    } else {
-      sortObj._id = -1;                 // ডিফল্ট: নতুন ডক্টর আগে
-    }
 
-    // ৫. পেজিনেশন লজিক (DoctorListingContainer এর itemsPerPage = 12 এর সাথে সিঙ্ক করা)
-    const page = parseInt(req.query.page, 10) || 1;
-    const perPage = parseInt(req.query.perPage, 10) || 12;
-    const skipItems = (page - 1) * perPage;
-
-    // ৬. ডাটা ফেচিং এবং কাউন্টিং
-    const currentCollection = typeof doctorsCollection !== 'undefined' ? doctorsCollection : db.collection("doctors");
-    
-    const total = await currentCollection.countDocuments(query);
-    const doctors = await currentCollection.find(query)
-      .sort(sortObj)
-      .skip(skipItems)
-      .limit(perPage)
-      .toArray();
-
-    // ৭. ফ্রন্টএন্ড কন্টেইনারের এক্সপেক্টেড অবজেক্ট ফরম্যাটে রেসপন্স পাঠানো
-    res.status(200).json({ total, doctors });
-
-  } catch (error) {
-    console.error("Error in /api/doctors:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-});
-
-  
     app.get('/api/doctors/:id', async (req, res) => {
       try {
         const id = req.params.id;
