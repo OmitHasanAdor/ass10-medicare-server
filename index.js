@@ -791,7 +791,7 @@ async function run() {
           },
           {
             $lookup: {
-              from: "doctors",          // আপনার ডক্টর কালেকশনের নাম (নিশ্চিত হয়ে নিন)
+              from: "doctors",        
               localField: "doctorId",
               foreignField: "_id",
               as: "doctorDetails"
@@ -820,7 +820,6 @@ async function run() {
         const email = req.query.email;
         if (!email) return res.status(400).send({ message: "Email is required" });
 
-        // 🌟 লক্ষ্য করুন: এখানে usersCollection এর বদলে authUserCollection (user কালেকশন) ব্যবহার করা হয়েছে
         const patientUser = await authUserCollection.findOne({ email: email });
 
         if (!patientUser) {
@@ -828,19 +827,16 @@ async function run() {
           return res.send([]);
         }
 
-        // Better Auth এর তৈরি করা ইউজার অবজেক্ট থেকে আইডি নেওয়া
         const rawId = patientUser._id || patientUser.id;
 
-        // আইডিটিকে মঙ্গোডিবি ObjectId-তে কনভার্ট করা
         const targetPatientId = typeof rawId === 'string' ? new ObjectId(rawId) : rawId;
 
         // console.log(`🔍 Fetching dynamic data for: ${email} -> Target Patient ID:`, targetPatientId);
 
-        // ২. সঠিক আইডি দিয়ে অ্যাপয়েন্টমেন্ট এগ্রিগেট করা
         const appointments = await appointmentsCollection.aggregate([
           {
             $match: {
-              patientId: targetPatientId // এখন এটি অবজেক্ট আইডি "6a400a5440312c29bf22bd55" এর সাথে হুবহু ম্যাচ করবে!
+              patientId: targetPatientId
             }
           },
           { $sort: { appointmentDate: -1 } },
@@ -855,7 +851,6 @@ async function run() {
           { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } }
         ]).toArray();
 
-        // console.log(`✅ Successfully found ${appointments.length} appointments for ${email}.`);
         res.send(appointments);
 
       } catch (error) {
@@ -901,17 +896,15 @@ async function run() {
               quantity: 1,
             },
           ],
-          // 🎯 মেটাডাটায় amountPaid স্পষ্ট করে পাস করে দেওয়া হলো
           metadata: {
             patientId,
             doctorId,
             appointmentDate,
             appointmentTime,
             symptoms: symptoms || "No symptoms specified",
-            amountPaid: feeAmount // 🚀 এই নতুন ফিল্ডটি যোগ করা হলো
+            amountPaid: feeAmount // 
           },
           mode: 'payment',
-          // 🚀 success_url ফিক্স করা হয়েছে (http://localhost:5000 অথবা env থেকে SERVER_URL ব্যবহার করুন)
           success_url: `${process.env.SERVER_URL || 'http://localhost:5000'}/api/payment-success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${process.env.CLIENT_URL || 'http://localhost:3000'}/find-doctors/${doctorId}`,
         });
