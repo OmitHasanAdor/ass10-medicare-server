@@ -368,7 +368,7 @@ async function run() {
             clinicianScore: `${clinicianScore} / 5.0`,
             totalPrescriptions
           },
-          reviews: recentReviews // 👈 রিভিউ এরে যুক্ত করা হলো
+          reviews: recentReviews //  রিভিউ এরে যুক্ত করা হলো
         });
 
       } catch (error) {
@@ -377,7 +377,6 @@ async function run() {
       }
     });
 
-    // 💻 আপনার এক্সপ্রেস ব্যাকএন্ড (index.js)
     app.patch('/api/doctor/update-schedule', async (req, res) => {
       try {
         const { email, availableDays, availableSlots } = req.body;
@@ -590,7 +589,7 @@ async function run() {
 
         const pipeline = [
           { $match: { doctorId: new ObjectId(doctorId) } },
-          { $sort: { createdAt: -1 } }, // লেটেস্ট হিস্ট্রি আগে দেখাবে
+          { $sort: { createdAt: -1 } }, 
           {
             $lookup: {
               from: 'users', // পেশেন্টের নাম আনার জন্য জয়েনিং
@@ -733,7 +732,7 @@ async function run() {
             }
           },
           {
-            $sort: { "paymentDate": -1 } // লেটেস্ট পেমেন্ট বা ট্রানজেকশনগুলো সবার উপরে থাকবে
+            $sort: { "paymentDate": -1 } 
           }
         ]).toArray();
 
@@ -770,7 +769,7 @@ async function run() {
           $set: {
             appointmentDate,
             appointmentTime,
-            appointmentStatus: "pending" // রিশেডিউল করলে স্ট্যাটাস আবার পেন্ডিং এ যাবে
+            appointmentStatus: "pending" 
           }
         };
 
@@ -804,7 +803,7 @@ async function run() {
             }
           },
           {
-            $sort: { "createdAt": -1 } // নতুন অ্যাপয়েন্টমেন্টগুলো উপরে দেখাবে
+            $sort: { "createdAt": -1 } 
           }
         ]).toArray();
 
@@ -823,7 +822,6 @@ async function run() {
         const patientUser = await authUserCollection.findOne({ email: email });
 
         if (!patientUser) {
-          // console.log(`❌ No user found in authUserCollection with email: ${email}`);
           return res.send([]);
         }
 
@@ -831,7 +829,6 @@ async function run() {
 
         const targetPatientId = typeof rawId === 'string' ? new ObjectId(rawId) : rawId;
 
-        // console.log(`🔍 Fetching dynamic data for: ${email} -> Target Patient ID:`, targetPatientId);
 
         const appointments = await appointmentsCollection.aggregate([
           {
@@ -1075,7 +1072,6 @@ async function run() {
           bookings: item.count
         }));
 
-        // রেসপন্স পাঠানো
         res.status(200).json({
           stats: {
             totalPatients: totalPatientsCount,
@@ -1117,7 +1113,6 @@ async function run() {
       }
     });
 
-    // ৩. ইউজার ডিলিট করার DELETE রুট
     app.delete('/api/users/:id', async (req, res) => {
       try {
         const id = req.params.id;
@@ -1180,14 +1175,12 @@ async function run() {
           return res.status(201).json({ success: true, message: "Google profile synced as patient", insertedId: result.insertedId });
         }
 
-        // ইউজার আগে থেকেই থাকলে জাস্ট সাকসেস রিটার্ন করবে
         res.status(200).json({ success: true, message: "User already exists in users collection" });
 
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
     });
-    // job search related
     app.get('/api/current-user', async (req, res) => {
       try {
         const email = req.query.email;
@@ -1195,8 +1188,6 @@ async function run() {
         if (!email) {
           return res.status(400).send({ message: "Email query parameter is required" });
         }
-
-        // const db = client.db("medicaredb");
 
         // ১. প্রথমে 'users' কালেকশনে খুঁজুন (যেখানে ডক্টর বা নরমাল ইউজার আছে এবং photo ফিল্ড আছে)
         let userData = await db.collection("users").findOne({ email: email });
@@ -1206,13 +1197,10 @@ async function run() {
           userData = await db.collection("user").findOne({ email: email });
         }
 
-        // যদি কোনো কালেকশনেই ইউজারকে না পাওয়া যায়
         if (!userData) {
           return res.status(404).send({ message: "User not found in database" });
         }
 
-        // ৩. ফ্রন্টএন্ডের জন্য একটি ক্লিন রেসপন্স অবজেক্ট তৈরি করা
-        // যদি ডাটাবেজে photo ফিল্ড না থাকে (যেমন Admin এর ক্ষেত্রে), তবে ui-avatars থেকে একটি ডিফল্ট ইমেজ ইউআরএল জেনারেট হবে
         const responseData = {
           _id: userData._id,
           name: userData.name,
@@ -1222,7 +1210,6 @@ async function run() {
           photo: userData.photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.name || "User")}&background=0D8ABC&color=fff&bold=true`
         };
 
-        // ফাইনাল ডেটা পাঠানো
         res.send(responseData);
 
       } catch (error) {
@@ -1317,13 +1304,10 @@ async function run() {
     });
 
 
-    // এডমিন প্যানেলে ভেরিফিকেশনের জন্য সব ডক্টরের লিস্ট আনার এপিআই
     app.get('/api/admin/doctors-verification', async (req, res) => {
       try {
-        // ডাটাবেজ থেকে সব ডক্টরকে নিয়ে আসা (প্রয়োজনে সর্ট করতে পারেন)
         const result = await doctorsCollection.find().sort({ _id: -1 }).toArray();
 
-        // সরাসরি অ্যারে রেসপন্স পাঠানো হচ্ছে
         res.status(200).send(result);
       } catch (error) {
         console.error("Error fetching verification list:", error);
@@ -1340,7 +1324,6 @@ async function run() {
           return res.status(400).send({ message: "Valid Doctor ID is required" });
         }
 
-        // ডাটাবেজ থেকে ওই নির্দিষ্ট ডক্টরের ফি খুঁজে বের করা
         const doctor = await db.collection("doctors").findOne({ _id: new ObjectId(doctorId) });
 
         if (!doctor) {
@@ -1357,11 +1340,10 @@ async function run() {
         // Stripe-এর অফিশিয়াল Payment Intent তৈরি করা
         const paymentIntent = await stripe.paymentIntents.create({
           amount: amountInCents,
-          currency: 'usd', // আপনার প্রয়োজন অনুযায়ী 'bdt' বা অন্য কিছু দিতে পারেন
+          currency: 'usd', 
           payment_method_types: ['card'],
         });
 
-        // ক্লায়েন্ট সিক্রেট (clientSecret) ফ্রন্টএন্ডে পাঠানো হচ্ছে
         res.send({
           clientSecret: paymentIntent.client_secret,
           amount: doctor.consultationFee
@@ -1373,7 +1355,6 @@ async function run() {
       }
     });
 
-    // 🎯 ২. লগইন বা প্রোফাইলের জন্য ইমেইল দিয়ে ইউজার ডাটা গেট করার API
     app.get('/api/users/:email', async (req, res) => {
       try {
         const email = req.params.email;
@@ -1386,8 +1367,6 @@ async function run() {
         res.status(500).json({ error: error.message });
       }
     });
-
-
 
 
     app.get('/', (req, res) => {
