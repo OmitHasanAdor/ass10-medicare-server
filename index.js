@@ -35,11 +35,9 @@ const client = new MongoClient(uri, {
 });
 
 
-// ২. MAIN ASYNC RUN FUNCTION
 
 async function run() {
   try {
-    // MongoDB connection
     await client.connect();
 
 
@@ -106,7 +104,7 @@ async function run() {
               patientName: { $ifNull: ["$patientInfo.name", "Anonymous Patient"] } // নাম না থাকলে ডিফল্ট নাম
             }
           },
-          { $sort: { reviewDate: -1 } }, // লেটেস্ট রিভিউ আগে দেখানোর জন্য
+          { $sort: { reviewDate: -1 } }, 
           { $limit: 6 }                  // সর্বোচ্চ ৬টি রিভিউ হোমপেজে দেখাবে
         ]).toArray();
 
@@ -155,14 +153,12 @@ async function run() {
           rating
         };
 
-        // ২. doctorsCollection আপডেট বা ইনসার্ট করা
         const result = await doctorsCollection.updateOne(
           { email: email },
           { $set: doctorCompleteData },
           { upsert: true }
         );
 
-        // ৩. 🎯 Better-Auth এর "user" কালেকশনে নাম এবং ইমেজ আপডেট (যদি প্রোফাইল পিকচার বা নাম চেঞ্জ হয়)
         const userUpdateFields = {};
         if (doctorName) userUpdateFields.name = doctorName;
         if (profileImage) userUpdateFields.image = profileImage; // Better-Auth এ সাধারণত ফিল্ডের নাম 'image' থাকে
@@ -174,7 +170,6 @@ async function run() {
             { $set: userUpdateFields }
           );
 
-          // আপনার নিজের তৈরি করা 'users' কালেকশন আপডেট
           const usersUpdateFields = { ...userUpdateFields };
           if (profileImage) usersUpdateFields.photo = profileImage; // আপনার কালেকশনে ফিল্ডের নাম 'photo'
 
@@ -220,7 +215,6 @@ async function run() {
           },
           { $unwind: { path: "$doctorInfo", preserveNullAndEmptyArrays: true } },
           {
-            // সাম্প্রতিক পেমেন্টগুলো সবার আগে দেখানোর জন্য সর্ট
             $sort: { "paymentDate": -1 }
           }
         ]).toArray();
@@ -297,7 +291,6 @@ async function run() {
 
         const query = { doctorId: docObjectId };
 
-        // ১. Clinician Score (Average Rating)
         const ratingStats = await db.collection("reviews").aggregate([
           { $match: query },
           { $group: { _id: null, avgRating: { $avg: "$rating" } } }
@@ -538,6 +531,36 @@ async function run() {
       }
     });
 
+       app.patch('/api/appointments/:id/status', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!['confirmed', 'cancelled', 'completed'].includes(status)) {
+          return res.status(400).send({ success: false, message: "Invalid status update" });
+        }
+
+
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ success: false, message: "Invalid Appointment ID format" });
+        }
+
+        const result = await appointmentsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { appointmentStatus: status } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ success: false, message: "Appointment not found" });
+        }
+
+        res.send({ success: true, message: `Appointment status updated to ${status}` });
+      } catch (error) {
+        res.status(500).send({ success: false, message: error.message });
+      }
+    });
+
     app.post('/api/prescriptions', async (req, res) => {
       try {
         const { doctorId, patientId, appointmentId, diagnosis, medications, notes } = req.body;
@@ -622,35 +645,7 @@ async function run() {
       }
     });
 
-    app.patch('/api/appointments/:id/status', async (req, res) => {
-      try {
-        const { id } = req.params;
-        const { status } = req.body;
-
-        if (!['confirmed', 'cancelled', 'completed'].includes(status)) {
-          return res.status(400).send({ success: false, message: "Invalid status update" });
-        }
-
-
-
-        if (!ObjectId.isValid(id)) {
-          return res.status(400).send({ success: false, message: "Invalid Appointment ID format" });
-        }
-
-        const result = await appointmentsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { appointmentStatus: status } }
-        );
-
-        if (result.matchedCount === 0) {
-          return res.status(404).send({ success: false, message: "Appointment not found" });
-        }
-
-        res.send({ success: true, message: `Appointment status updated to ${status}` });
-      } catch (error) {
-        res.status(500).send({ success: false, message: error.message });
-      }
-    });
+ 
 
     app.patch('/api/reviews/update/:id', async (req, res) => {
       try {
@@ -814,47 +809,7 @@ async function run() {
       }
     });
 
-    app.get('/patient-dashboard-data', async (req, res) => {
-      try {
-        const email = req.query.email;
-        if (!email) return res.status(400).send({ message: "Email is required" });
 
-        const patientUser = await authUserCollection.findOne({ email: email });
-
-        if (!patientUser) {
-          return res.send([]);
-        }
-
-        const rawId = patientUser._id || patientUser.id;
-
-        const targetPatientId = typeof rawId === 'string' ? new ObjectId(rawId) : rawId;
-
-
-        const appointments = await appointmentsCollection.aggregate([
-          {
-            $match: {
-              patientId: targetPatientId
-            }
-          },
-          { $sort: { appointmentDate: -1 } },
-          {
-            $lookup: {
-              from: "doctors",
-              localField: "doctorId",
-              foreignField: "_id",
-              as: "doctorDetails"
-            }
-          },
-          { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } }
-        ]).toArray();
-
-        res.send(appointments);
-
-      } catch (error) {
-        console.error("Backend Error:", error);
-        res.status(500).send({ message: error.message });
-      }
-    });
 
 
     app.post('/api/create-checkout-session', async (req, res) => {
@@ -911,6 +866,47 @@ async function run() {
       } catch (error) {
         console.error("Stripe Session Error:", error);
         res.status(500).send({ error: error.message });
+      }
+    });
+        app.get('/patient-dashboard-data', async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email) return res.status(400).send({ message: "Email is required" });
+
+        const patientUser = await authUserCollection.findOne({ email: email });
+
+        if (!patientUser) {
+          return res.send([]);
+        }
+
+        const rawId = patientUser._id || patientUser.id;
+
+        const targetPatientId = typeof rawId === 'string' ? new ObjectId(rawId) : rawId;
+
+
+        const appointments = await appointmentsCollection.aggregate([
+          {
+            $match: {
+              patientId: targetPatientId
+            }
+          },
+          { $sort: { appointmentDate: -1 } },
+          {
+            $lookup: {
+              from: "doctors",
+              localField: "doctorId",
+              foreignField: "_id",
+              as: "doctorDetails"
+            }
+          },
+          { $unwind: { path: "$doctorDetails", preserveNullAndEmptyArrays: true } }
+        ]).toArray();
+
+        res.send(appointments);
+
+      } catch (error) {
+        console.error("Backend Error:", error);
+        res.status(500).send({ message: error.message });
       }
     });
 
